@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+/* 주황 천막 포장마차 at night: tarp orange, bulb yellow, red plastic stool, steel counter */
+@theme {
+  --color-night: #12151d;
+  --color-night-soft: #1f2430;
+  --color-tarp: #ec6a1f;
+  --color-tarp-dark: #b84b10;
+  --color-bulb: #ffd27a;
+  --color-stool: #ff5a47;
+  --color-steel: #b8bec4;
+  --color-paper: #fff8ea;
+  --color-ink: #f6efe3;
+  --color-ink-dim: #b9b0a3;
+  --color-soju: #3aa36b;
+
+  /* loaded with a <link> in layout.tsx so the canvas can use the Korean glyphs too */
+  --font-sign: "Do Hyeon", system-ui, sans-serif;
+  --font-hand: "Nanum Pen Script", cursive;
+  --font-receipt: "Nanum Gothic Coding", ui-monospace, monospace;
+  --font-sans: "Nanum Gothic", system-ui, sans-serif;
+
+  --animate-pop: pop 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  --animate-sway: sway 3s ease-in-out infinite;
+
+  @keyframes pop {
+    0% {
+      opacity: 0;
+      transform: translateY(10px) scale(0.95);
+    }
+    100% {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes sway {
+    0%,
+    100% {
+      transform: rotate(-3deg);
+    }
+    50% {
+      transform: rotate(3deg);
+    }
+  }
+}
+
+/* one dark look on purpose (it's a tent at night), so no light mode */
+:root {
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body {
+    background-color: var(--color-night);
+  }
+  body {
+    @apply font-sans text-ink antialiased;
+    /* warm light spilling out of the tent */
+    background-image: radial-gradient(ellipse 80% 50% at 50% 0%, rgb(236 106 31 / 0.28), transparent 70%);
+    background-repeat: no-repeat;
+    min-height: 100dvh;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-bulb);
+    outline-offset: 3px;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: default;
+    opacity: 0.45;
+  }
+}
+
+/* the tarp: orange with see-through plastic seams */
+@utility tarp {
+  background-color: var(--color-tarp);
+  background-image:
+    linear-gradient(90deg, rgb(255 255 255 / 0.14) 0 2px, transparent 2px),
+    linear-gradient(180deg, rgb(255 255 255 / 0.12), transparent 70%);
+  background-size: 72px 100%, 100% 100%;
+}
+
+/* wavy hem under the tarp */
+@utility hem {
+  height: 14px;
+  background: radial-gradient(circle at 14px 0, var(--color-tarp) 13px, transparent 14px) 0 0 / 28px 14px repeat-x;
+}
+
+@layer components {
+  .btn {
+    @apply flex min-h-13 w-full items-center justify-center rounded-lg bg-tarp px-4 font-sign text-xl text-white shadow-[0_4px_0_var(--color-tarp-dark)] transition-transform duration-75;
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 var(--color-tarp-dark);
+  }
+  .btn-ghost {
+    @apply bg-night-soft text-ink shadow-[0_4px_0_#0a0c11];
+  }
+  .btn-ghost:active:not(:disabled) {
+    box-shadow: 0 1px 0 #0a0c11;
+  }
+  .chip {
+    @apply flex min-h-11 items-center justify-center gap-1.5 rounded-lg bg-night-soft px-2 text-[15px] font-bold aria-pressed:bg-steel aria-pressed:text-night;
+  }
+  .board {
+    @apply block aspect-square w-full max-w-full touch-none rounded-xl select-none;
+  }
+  .bubble {
+    @apply relative rounded-2xl bg-paper px-4 py-3 font-hand text-[26px] leading-[1.15] text-night;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

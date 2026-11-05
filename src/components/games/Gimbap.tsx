@@ -1,0 +1,303 @@
+"use client";
+
+import { useRef, useState } from "react";
+import { boardPoint, clamp, useBoard, useLoop } from "@/lib/canvas";
+import type { GameProps } from "./types";
+
+type Item = { key: string; label: string; color: string; wrong?: boolean };
+
+const RICE: Item = { key: "rice", label: "밥", color: "#f6f2e8" };
+const FILLINGS: Item[] = [
+  { key: "danmuji", label: "단무지", color: "#f2c230" },
+  { key: "ham", label: "햄", color: "#e8728a" },
+  { key: "egg", label: "계란", color: "#f7dc6f" },
+  { key: "spinach", label: "시금치", color: "#3f8f3a" },
+  { key: "carrot", label: "당근", color: "#e8742c" },
+];
+// one thing that does NOT go in gimbap
+const TRAP: Item = { key: "strawberry", label: "딸기", color: "#d6283c", wrong: true };
+const BUTTONS = [RICE, ...FILLINGS.slice(0, 3), TRAP, ...FILLINGS.slice(3)];
+
+const CUTS = 7; // 8 pieces
+const ROLL_LEN = 220; // px of upward drag to roll it all
+const TOO_FAST = 1.6; // px per ms, faster than this and the side bursts
+
+const ROLL_X0 = 30;
+const ROLL_X1 = 330;
+
+export default function Gimbap({ onDone }: GameProps) {
+  const ref = useBoard();
+  const [phase, setPhase] = useState<"fill" | "roll" | "cut">("fill");
+  const [placed, setPlaced] = useState<Item[]>([]);
+  const s = useRef({
+    roll: 0,
+    bursts: 0,
+    burstAt: -10,
+    drag: null as { y: number; t: number } | null,
+    knifeX: 180,
+    cuts: [] as number[],
+    finishedAt: -1,
+    done: false,
+  });
+  const [, setTick] = useState(0);
+
+  function fillScore() {
+    if (!placed.some((p) => p.key === "rice")) return 0;
+    let score = 100;
+    if (placed[0].key !== "rice") score -= 30;
+    for (const f of FILLINGS) if (!placed.some((p) => p.key === f.key)) score -= 15;
+    if (placed.some((p) => p.wrong)) score -= 40;
+    return clamp(score, 0, 100);
+  }
+
+  function finish() {
+    const g = s.current;
+    if (g.done) return;
+    g.done = true;
+
+    const edges = [ROLL_X0, ...[...g.cuts].sort((a, b) => a - b), ROLL_X1];
+    const widths = edges.slice(1).map((x, i) => x - edges[i]);
+    const mean = widths.reduce((a, b) => a + b, 0) / widths.length;
+    const std = Math.sqrt(widths.reduce((a, w) => a + (w - mean) ** 2, 0) / widths.length);
+    const cutScore = clamp(1 - (std / mean) * 2.2) * 100;
+    const rollScore = clamp(1 - g.bursts * 0.35) * 100;
+    const fill = fillScore();
+    const score = Math.round(fill * 0.3 + rollScore * 0.3 + cutScore * 0.4);
+
+    let note = "단면이 예술이에요";
+    if (placed.some((p) => p.wrong)) note = "딸기가 들어갔어요…";
+    else if (fill < 70) note = "재료가 빠졌어요";
+    else if (g.bursts > 0) note = "옆구리가 터졌어요";
+    else if (cutScore < 60) note = "두께가 들쭉날쭉해요";
+    onDone(score, note);
+  }
+
+  function add(item: Item) {
+    if (placed.some((p) => p.key === item.key)) return;
+    setPlaced((p) => [...p, item]);
+  }
+
+  useLoop((_dt, t) => {
+    const c = ref.current?.getContext("2d");
+    if (!c) return;
+    const g = s.current;
+    if (g.finishedAt > 0 && t - g.finishedAt > 0.9) finish();
+    draw(c, t);
+  });
+
+  function drawCrossSection(c: CanvasRenderingContext2D, x: number, y: number, r: number) {
+    c.fillStyle = "#1d2a1b"; // laver
+    c.beginPath();
+    c.arc(x, y, r, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = "#f6f2e8";
+    c.beginPath();
+    c.arc(x, y, r - 4, 0, Math.PI * 2);
+    c.fill();
+    const fills = placed.filter((p) => p.key !== "rice");
+    fills.forEach((f, i) => {
+      const a = (i / Math.max(1, fills.length)) * Math.PI * 2;
+      c.fillStyle = f.color;
+      c.beginPath();
+      c.arc(x + Math.cos(a) * r * 0.32, y + Math.sin(a) * r * 0.32, r * 0.2, 0, Math.PI * 2);
+      c.fill();
+    });
+  }
+
+  function draw(c: CanvasRenderingContext2D, t: number) {
+    const g = s.current;
+
+    // bamboo mat on a steel counter
+    c.fillStyle = "#b8bec4";
+    c.fillRect(0, 0, 360, 360);
+    c.fillStyle = "#cfc08a";
+    c.fillRect(40, 30, 280, 300);
+    c.strokeStyle = "#a8975e";
+    c.lineWidth = 2;
+    for (let y = 36; y < 330; y += 10) {
+      c.beginPath();
+      c.moveTo(40, y);
+      c.lineTo(320, y);
+      c.stroke();
+    }
+
+    if (phase === "fill" || phase === "roll") {
+      const rolled = phase === "roll" ? g.roll : 0;
+      const laverTop = 50;
+      const laverBottom = 310 - rolled * 240;
+
+      if (laverBottom > laverTop) {
+        c.fillStyle = "#1d2a1b";
+        c.fillRect(60, laverTop, 240, laverBottom - laverTop);
+        if (placed.some((p) => p.key === "rice")) {
+          c.fillStyle = "#f6f2e8";
+          c.fillRect(64, Math.max(laverTop + 50, laverTop), 232, Math.max(0, laverBottom - laverTop - 54));
+          // rice grains texture
+          c.fillStyle = "#e4dccb";
+          for (let i = 0; i < 60; i++) {
+            const gx = 66 + ((i * 37) % 228);
+            const gy = laverTop + 54 + ((i * 53) % 200);
+            if (gy < laverBottom - 6) c.fillRect(gx, gy, 4, 2);
+          }
+        }
+        // fillings sit near the bottom edge, stacked as strips
+        placed
+          .filter((p) => p.key !== "rice")
+          .forEach((f, i) => {
+            const y = 250 - i * 13;
+            if (y < laverBottom - 8) {
+              c.fillStyle = f.color;
+              c.beginPath();
+              c.roundRect(70, y, 220, 11, 5);
+              c.fill();
+            }
+          });
+      }
+
+      if (phase === "roll") {
+        // the growing roll at the bottom edge of what's left
+        const r = 14 + rolled * 26;
+        c.fillStyle = "#1d2a1b";
+        c.beginPath();
+        c.roundRect(56, laverBottom - r, 248, r * 2, r);
+        c.fill();
+        if (t - g.burstAt < 1.2 || g.bursts > 0) {
+          // rice spilling out the side
+          c.fillStyle = "#f6f2e8";
+          c.beginPath();
+          c.ellipse(304, laverBottom, 10 + g.bursts * 4, 7, 0, 0, Math.PI * 2);
+          c.fill();
+        }
+        // arrow hint
+        if (g.roll < 0.15) {
+          c.fillStyle = "rgba(255,255,255,0.85)";
+          c.font = "18px 'Do Hyeon', sans-serif";
+          c.textAlign = "center";
+          c.fillText("↑ 천천히 위로 밀어요", 180, 30 + 22 * Math.abs(Math.sin(t * 2)));
+        }
+      }
+    }
+
+    if (phase === "cut") {
+      const y = 180;
+      const sorted = [...g.cuts].sort((a, b) => a - b);
+      const finished = g.finishedAt > 0;
+
+      if (!finished) {
+        c.fillStyle = "#1d2a1b";
+        c.beginPath();
+        c.roundRect(ROLL_X0, y - 26, ROLL_X1 - ROLL_X0, 52, 26);
+        c.fill();
+        c.fillStyle = "rgba(255,255,255,0.12)";
+        c.fillRect(ROLL_X0 + 20, y - 18, ROLL_X1 - ROLL_X0 - 40, 4); // sesame-oil shine
+        c.strokeStyle = "#f6f2e8";
+        c.lineWidth = 2;
+        for (const x of sorted) {
+          c.beginPath();
+          c.moveTo(x, y - 28);
+          c.lineTo(x, y + 28);
+          c.stroke();
+        }
+        // knife follows your finger
+        c.fillStyle = "#dfe3e6";
+        c.fillRect(g.knifeX - 2, y - 90, 4, 64);
+        c.fillStyle = "#3b2b22";
+        c.fillRect(g.knifeX - 5, y - 120, 10, 32);
+        c.fillStyle = "rgba(255,255,255,0.9)";
+        c.font = "18px 'Do Hyeon', sans-serif";
+        c.textAlign = "center";
+        c.fillText(`탭해서 썰기 ${g.cuts.length}/${CUTS}`, 180, 290);
+      } else {
+        // pieces lined up with the cut side showing. Thicker slice = bigger circle
+        const edges = [ROLL_X0, ...sorted, ROLL_X1];
+        edges.slice(1).forEach((x1, i) => {
+          const w = x1 - edges[i];
+          drawCrossSection(c, 47 + i * 38, y, Math.max(8, Math.min(18, w * 0.5)));
+        });
+        c.fillStyle = "rgba(255,255,255,0.9)";
+        c.font = "18px 'Do Hyeon', sans-serif";
+        c.textAlign = "center";
+        c.fillText("썰기 끝!", 180, 290);
+      }
+    }
+  }
+
+  const g = s.current;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <canvas
+        ref={ref}
+        className="board"
+        aria-label="김발 위 김밥"
+        onPointerDown={(e) => {
+          const p = boardPoint(e);
+          if (phase === "roll") {
+            e.currentTarget.setPointerCapture(e.pointerId);
+            g.drag = { y: p.y, t: performance.now() };
+          }
+          if (phase === "cut" && g.finishedAt < 0) {
+            g.knifeX = p.x;
+            // a cut right on top of another one doesn't count
+            if (p.x > ROLL_X0 + 4 && p.x < ROLL_X1 - 4 && g.cuts.every((x) => Math.abs(x - p.x) > 6)) {
+              g.cuts.push(p.x);
+              if (g.cuts.length >= CUTS) g.finishedAt = performance.now() / 1000;
+              setTick((n) => n + 1);
+            }
+          }
+        }}
+        onPointerMove={(e) => {
+          const p = boardPoint(e);
+          if (phase === "cut") g.knifeX = p.x;
+          if (phase === "roll" && g.drag) {
+            const now = performance.now();
+            const dy = g.drag.y - p.y;
+            const speed = dy / Math.max(1, now - g.drag.t);
+            if (dy > 0) {
+              g.roll = clamp(g.roll + dy / ROLL_LEN);
+              if (speed > TOO_FAST && now / 1000 - g.burstAt > 0.8) {
+                g.bursts += 1;
+                g.burstAt = now / 1000;
+              }
+            }
+            g.drag = { y: p.y, t: now };
+            if (g.roll >= 1) {
+              g.drag = null;
+              setPhase("cut");
+            }
+          }
+        }}
+        onPointerUp={() => (g.drag = null)}
+      />
+
+      {phase === "fill" && (
+        <>
+          <p className="m-0 text-sm text-ink-dim">밥 먼저 깔고, 김밥에 들어가는 재료만 골라 올려요.</p>
+          <div className="grid grid-cols-4 gap-2">
+            {BUTTONS.map((item) => {
+              const on = placed.some((p) => p.key === item.key);
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => add(item)}
+                  disabled={on}
+                  aria-pressed={on}
+                  className="chip"
+                >
+                  <span className="size-3 rounded-full" style={{ background: item.color }} aria-hidden="true" />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+          <button type="button" className="btn" disabled={placed.length === 0} onClick={() => setPhase("roll")}>
+            다 올렸어요, 말기
+          </button>
+        </>
+      )}
+      {phase === "roll" && <p className="m-0 text-sm text-ink-dim">김밥 위를 누른 채로 천천히 위로 밀어요. 너무 빠르면 옆구리가 터져요.</p>}
+      {phase === "cut" && <p className="m-0 text-sm text-ink-dim">칼을 움직여서 탭. 8조각이 같은 두께가 되게 썰어요.</p>}
+    </div>
+  );
+}
