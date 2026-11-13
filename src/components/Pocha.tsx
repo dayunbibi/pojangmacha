@@ -11,6 +11,7 @@ import Eomuk from "./games/Eomuk";
 import Gyeranppang from "./games/Gyeranppang";
 import Receipt from "./Receipt";
 import Guest from "./Guest";
+import Ranking, { useBoard } from "./Ranking";
 import type { GameProps } from "./games/types";
 
 const GAMES: Record<MenuKey, React.ComponentType<GameProps>> = {
@@ -49,6 +50,8 @@ export default function Pocha() {
   const [idx, setIdx] = useState(0);
   const [served, setServed] = useState<Served[]>([]);
   const [best, setBest] = useState(0);
+  const [token, setToken] = useState<string | null>(null); // proves this night was actually played
+  const board = useBoard();
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
@@ -64,6 +67,11 @@ export default function Pocha() {
   }, [step, idx]);
 
   function open() {
+    setToken(null);
+    fetch("/api/play", { method: "POST" })
+      .then((r) => r.json())
+      .then((d) => setToken(d.token ?? null))
+      .catch(() => {}); // no token = no ranking this time, the game still works
     setNight(makeNight(MENU_KEYS));
     setIdx(0);
     setServed([]);
@@ -123,13 +131,14 @@ export default function Pocha() {
         <button type="button" className="btn" onClick={open}>
           장사 시작
         </button>
-        {best > 0 && <p className="m-0 text-center text-sm text-ink-dim">최고 매출 {won(best)}</p>}
+        {best > 0 && <p className="m-0 text-center text-sm text-ink-dim">내 최고 매출 {won(best)}</p>}
+        <Ranking board={board} />
       </section>
     );
   }
 
   if (step === "close") {
-    return <Receipt served={served} best={best} onAgain={open} />;
+    return <Receipt served={served} best={best} token={token} onAgain={open} />;
   }
 
   const { menu, customer } = night[idx];

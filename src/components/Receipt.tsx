@@ -5,19 +5,61 @@ import { MENUS, won } from "@/lib/menus";
 import { TIER_LABEL, tierOf } from "@/lib/customers";
 import { makeReceiptImage, totalOf, verdict } from "@/lib/receiptImage";
 import type { Served } from "./Pocha";
+import Ranking, { useBoard } from "./Ranking";
 
-type Props = { served: Served[]; best: number; onAgain: () => void };
+type Props = { served: Served[]; best: number; token: string | null; onAgain: () => void };
 
-export default function Receipt({ served, best, onAgain }: Props) {
+const NAME_KEY = "pocha-name";
+
+export default function Receipt({ served, best, token, onAgain }: Props) {
   const total = totalOf(served);
   const [card, setCard] = useState<{ url: string; blob: Blob } | null>(null);
   const [making, setMaking] = useState(false);
   const [toast, setToast] = useState("");
   const headingRef = useRef<HTMLHeadingElement>(null);
 
+  // ranking
+  const [name, setName] = useState("");
+  const [sending, setSending] = useState(false);
+  const [rank, setRank] = useState<number | null>(null);
+  const [rankError, setRankError] = useState("");
+  const [reload, setReload] = useState(0);
+  const board = useBoard(reload);
+
   useEffect(() => {
     headingRef.current?.focus({ preventScroll: true });
+    try {
+      setName(localStorage.getItem(NAME_KEY) ?? "");
+    } catch {
+      // private mode
+    }
   }, []);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSending(true);
+    setRankError("");
+    try {
+      const res = await fetch("/api/scores", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token, name, dishes: served.map((s) => ({ menu: s.menu, score: s.score })) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "랭킹에 못 올렸어요.");
+      setRank(data.rank);
+      setReload((n) => n + 1);
+      try {
+        localStorage.setItem(NAME_KEY, name.trim());
+      } catch {
+        // fine
+      }
+    } catch (err) {
+      setRankError(err instanceof Error && err.message !== "Failed to fetch" ? err.message : "인터넷 연결을 확인해 주세요.");
+    } finally {
+      setSending(false);
+    }
+  }
 
   useEffect(() => {
     return () => {
@@ -123,6 +165,44 @@ export default function Receipt({ served, best, onAgain }: Props) {
           {making ? "영수증 뽑는 중…" : "영수증 카드 만들기"}
         </button>
       )}
+      {token && board?.enabled && (
+        <div className="flex flex-col gap-3">
+          {rank === null ? (
+            <form onSubmit={submit} className="flex flex-col gap-2 rounded-lg bg-night-soft p-4">
+              <label htmlFor="rank-name" className="font-sign text-lg text-bulb">
+                오늘의 매출 랭킹에 올리기
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="rank-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={12}
+                  required
+                  placeholder="포차 이름이나 닉네임"
+                  autoComplete="nickname"
+                  className="min-h-12 min-w-0 flex-1 rounded-lg border-2 border-white/15 bg-night px-3 text-base text-ink placeholder:text-ink-dim focus:border-bulb focus:outline-none"
+                />
+                <button type="submit" className="btn w-auto px-5" disabled={sending || !name.trim()}>
+                  {sending ? "올리는 중" : "올리기"}
+                </button>
+              </div>
+              {rankError && (
+                <p role="alert" className="m-0 text-sm text-stool">
+                  {rankError}
+                </p>
+              )}
+              <p className="m-0 text-xs text-ink-dim">닉네임이랑 매출만 랭킹에 보여요. 하루 지나면 새로 시작해요.</p>
+            </form>
+          ) : (
+            <p className="m-0 text-center font-sign text-2xl text-bulb" role="status">
+              오늘 {rank}등 했어요!
+            </p>
+          )}
+          {rank !== null && <Ranking board={board} highlight={rank} />}
+        </div>
+      )}
+
       <button type="button" className={card ? "btn" : "btn btn-ghost"} onClick={onAgain}>
         내일 또 장사하기
       </button>

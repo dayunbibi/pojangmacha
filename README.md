@@ -32,6 +32,34 @@ a tip for great food, a discount for so-so food, and "it's on the house" if it's
 - Best night's total is kept in `localStorage` (wrapped in try/catch for private mode).
 - Keyboard: the tap-timing games also work with Space/Enter. `prefers-reduced-motion` is respected.
 
+## Daily sales ranking (Supabase)
+
+After closing the night you can put your total on today's board (Toronto day, top 10).
+
+- Same Supabase project as [AI 엄마 잔소리](https://github.com/dayunbibi/mom-nag), its own table `pocha_scores`.
+  Schema and the two SQL functions are in `supabase/schema.sql`.
+- The browser never talks to Supabase. Next.js route handlers call the SQL functions with the secret key,
+  and RLS with no policies blocks the public keys.
+- **The server decides the total.** The page only sends the 5 dish scores; the API checks each menu
+  appears exactly once and every score is 0-100, then works out what the customers paid with the same
+  `payFor` function the game uses. The table also rejects totals above the real maximum (22,500원).
+- **Play token.** `POST /api/play` hands out an HMAC-signed token when the night starts. A score is only
+  accepted with a valid token that is at least 40 seconds old (five dishes can't be cooked faster by hand),
+  and each token works once (unique nonce in the table). It doesn't make cheating impossible, since the game runs
+  in the browser, but it stops posting scores without playing, replaying a request, or a bot finishing in 3 seconds.
+- 5 entries per person per 10 minutes, checked inside one SQL function with an advisory lock.
+  IPs are stored only as an HMAC, and rows older than 30 days are cleaned up.
+- Nicknames: 1-12 characters, Korean / letters / numbers / a few symbols.
+
+Env vars (Vercel → Settings → Environment Variables), same values as mom-nag:
+
+```
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_SECRET_KEY=sb_secret_...
+```
+
+Without them the game works the same, the ranking just doesn't show up.
+
 ## Running locally
 
 ```bash
@@ -40,6 +68,10 @@ npm run dev
 ```
 
 ## Testing
+
+- SQL: the schema runs in PGlite (Postgres in Node) and 10 tests check ranks, duplicate tokens,
+  the per-person limit, the max total, and that yesterday doesn't count.
+- API: fresh token → "too fast", tampered token → rejected, bad nickname, a menu twice → rejected.
 
 I played full nights with a Playwright script at phone width (400px): one "careful" run and one
 "sloppy" run, to check the scores spread out (careful ≈ 100, sloppy ≈ 20–45) and that nothing
