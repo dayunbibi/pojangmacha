@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { boardPoint, closeness, cookColor, useBoard, useLoop } from "@/lib/canvas";
+import { boardPoint, closeness, cookColor, useBoard, useLoop, bulbLight, snapshot } from "@/lib/canvas";
 import type { GameProps } from "./types";
 
 // 4 pieces of heart on one skewer, each piece split into 2x4 cells for the sauce
@@ -46,7 +46,7 @@ export default function Yeomtong({ onDone }: GameProps) {
     if (Math.max(...g.cook) > 1.05) note = "한쪽이 시커멓게 탔어요";
     else if (Math.min(...g.cook) < 0.4) note = "한쪽이 덜 익었어요";
     else if (Math.min(...coverage) < 0.7) note = "양념이 덜 발렸어요";
-    onDone(score, note);
+    onDone(score, note, snapshot(ref.current));
   }
 
   function paint(x: number, y: number) {
@@ -72,6 +72,7 @@ export default function Yeomtong({ onDone }: GameProps) {
     if (g.cook[g.down] > BURN_AT) finish();
 
     draw(c, t);
+    bulbLight(c, t);
 
     if (t - lastUi.current > 0.15) {
       lastUi.current = t;

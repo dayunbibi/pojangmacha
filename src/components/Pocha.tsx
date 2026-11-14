@@ -11,6 +11,7 @@ import Eomuk from "./games/Eomuk";
 import Gyeranppang from "./games/Gyeranppang";
 import Receipt from "./Receipt";
 import Guest from "./Guest";
+import Plate from "./Plate";
 import Ranking, { useBoard } from "./Ranking";
 import type { GameProps } from "./games/types";
 
@@ -30,6 +31,7 @@ export type Served = {
   paid: number;
   tip: number;
   reaction: string;
+  shot?: string; // picture of the dish
 };
 
 type Step = "open" | "order" | "cook" | "serve" | "close";
@@ -78,11 +80,11 @@ export default function Pocha() {
     setStep("order");
   }
 
-  function done(score: number, note: string) {
+  function done(score: number, note: string, shot?: string) {
     const { menu, customer } = night[idx];
     const { paid, tip } = payFor(menu, score);
     const reaction = customer.reactions[tierOf(score)];
-    setServed((s) => [...s, { menu, customer, score, note, paid, tip, reaction }]);
+    setServed((s) => [...s, { menu, customer, score, note, paid, tip, reaction, shot }]);
     setStep("serve");
     if (tierOf(score) === 0) navigator.vibrate?.(40);
   }
@@ -198,6 +200,7 @@ export default function Pocha() {
         </h2>
         {count}
       </div>
+      {last.shot && <Plate src={last.shot} alt={`${MENUS[menu].name} ${last.score}점`} />}
       <div className="flex items-end justify-between gap-3 rounded-lg bg-night-soft p-4">
         <div className="min-w-0">
           <p className={`m-0 font-sign text-3xl ${tier === 0 ? "text-bulb" : tier === 3 ? "text-stool" : "text-ink"}`}>{TIER_LABEL[tier]}</p>

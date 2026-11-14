@@ -1,3 +1,4 @@
 export type GameProps = {
-  onDone: (score: number, note: string) => void;
+  // shot = picture of the board when the dish is done, shown on the plate
+  onDone: (score: number, note: string, shot?: string) => void;
 };

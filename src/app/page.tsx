@@ -1,4 +1,5 @@
 import Pocha from "@/components/Pocha";
+import Bulbs from "@/components/Bulbs";
 
 export default function Home() {
   return (
@@ -10,6 +11,7 @@ export default function Home() {
         </h1>
       </header>
       <div className="hem" aria-hidden="true" />
+      <Bulbs />
 
       <main className="mx-auto flex max-w-[440px] flex-col gap-5 px-4 pt-4 pb-10">
         <Pocha />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { clamp, steam, useBoard, useLoop } from "@/lib/canvas";
+import { clamp, steam, useBoard, useLoop, bulbLight, snapshot } from "@/lib/canvas";
 import type { GameProps } from "./types";
 
 const SKEWER_X = 150;
@@ -36,7 +36,7 @@ export default function Eomuk({ onDone }: GameProps) {
     let note = "물결이 고르게 잘 꽂혔어요";
     if (misses >= 2) note = "어묵이 꼬치에서 흘러내려요";
     else if (score < 70) note = "물결이 삐뚤빼뚤해요";
-    onDone(score, note);
+    onDone(score, note, snapshot(ref.current));
   }
 
   function tap() {
@@ -68,6 +68,7 @@ export default function Eomuk({ onDone }: GameProps) {
       finish();
     }
     draw(c, t);
+    bulbLight(c, t);
   });
 
   function draw(c: CanvasRenderingContext2D, t: number) {

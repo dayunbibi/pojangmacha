@@ -94,3 +94,28 @@ export function steam(c: CanvasRenderingContext2D, x: number, y: number, t: numb
   }
   c.restore();
 }
+
+// warm bulb light from above + darker corners, drawn last on every board
+export function bulbLight(c: CanvasRenderingContext2D, t: number) {
+  const flicker = 0.92 + 0.08 * Math.sin(t * 7.3) * Math.sin(t * 3.1);
+  const light = c.createRadialGradient(SIZE / 2, -40, 20, SIZE / 2, -40, SIZE * 1.1);
+  light.addColorStop(0, `rgba(255,200,120,${0.22 * flicker})`);
+  light.addColorStop(1, "rgba(255,200,120,0)");
+  c.fillStyle = light;
+  c.fillRect(0, 0, SIZE, SIZE);
+
+  const shade = c.createRadialGradient(SIZE / 2, SIZE / 2, SIZE * 0.35, SIZE / 2, SIZE / 2, SIZE * 0.75);
+  shade.addColorStop(0, "rgba(10,8,12,0)");
+  shade.addColorStop(1, "rgba(10,8,12,0.45)");
+  c.fillStyle = shade;
+  c.fillRect(0, 0, SIZE, SIZE);
+}
+
+// picture of the finished dish for the "나왔습니다" plate
+export function snapshot(canvas: HTMLCanvasElement | null) {
+  try {
+    return canvas?.toDataURL("image/jpeg", 0.85);
+  } catch {
+    return undefined;
+  }
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { boardPoint, clamp, closeness, steam, useBoard, useLoop } from "@/lib/canvas";
+import { boardPoint, clamp, closeness, steam, useBoard, useLoop, bulbLight, snapshot } from "@/lib/canvas";
 import type { GameProps } from "./types";
 
 const CX = 180;
@@ -47,7 +47,7 @@ export default function Tteokbokki({ onDone }: GameProps) {
     if (g.thick > 1) note = "국물이 다 졸아서 짜요";
     else if (g.thick < 0.55) note = "국물이 너무 묽어요";
     else if (g.burn > 0.4) note = "바닥이 눌어서 탄 맛이 나요";
-    onDone(score, note);
+    onDone(score, note, snapshot(ref.current));
   }
 
   useLoop((dt, t) => {
@@ -63,6 +63,7 @@ export default function Tteokbokki({ onDone }: GameProps) {
     if (g.thick >= OVERCOOKED) finish();
 
     draw(c, t);
+    bulbLight(c, t);
     if (t - lastUi.current > 0.12) {
       lastUi.current = t;
       setTick((n) => n + 1);

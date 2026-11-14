@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { clamp, closeness, useBoard, useLoop } from "@/lib/canvas";
+import { clamp, closeness, useBoard, useLoop, bulbLight, snapshot } from "@/lib/canvas";
 import type { GameProps } from "./types";
 
 const MOLDS = [70, 180, 290];
@@ -46,7 +46,7 @@ export default function Gyeranppang({ onDone }: GameProps) {
     else if (g.bake < 0.5) note = "덜 구워서 말랑해요";
     else if (Math.max(...g.fill) > 0.95) note = "반죽이 넘쳤어요";
     else if (avg(egg) < 0.6) note = "계란이 옆으로 쏠렸어요";
-    onDone(score, note);
+    onDone(score, note, snapshot(ref.current));
   }
 
   useLoop((dt, t) => {
@@ -64,6 +64,7 @@ export default function Gyeranppang({ onDone }: GameProps) {
       }
     }
     draw(c, t);
+    bulbLight(c, t);
   });
 
   function draw(c: CanvasRenderingContext2D, t: number) {

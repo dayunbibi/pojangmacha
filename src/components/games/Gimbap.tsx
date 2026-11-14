@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { boardPoint, clamp, useBoard, useLoop } from "@/lib/canvas";
+import { boardPoint, clamp, useBoard, useLoop, bulbLight, snapshot } from "@/lib/canvas";
 import type { GameProps } from "./types";
 
 type Item = { key: string; label: string; color: string; wrong?: boolean };
@@ -69,7 +69,7 @@ export default function Gimbap({ onDone }: GameProps) {
     else if (fill < 70) note = "재료가 빠졌어요";
     else if (g.bursts > 0) note = "옆구리가 터졌어요";
     else if (cutScore < 60) note = "두께가 들쭉날쭉해요";
-    onDone(score, note);
+    onDone(score, note, snapshot(ref.current));
   }
 
   function add(item: Item) {
@@ -83,6 +83,7 @@ export default function Gimbap({ onDone }: GameProps) {
     const g = s.current;
     if (g.finishedAt > 0 && t - g.finishedAt > 0.9) finish();
     draw(c, t);
+    bulbLight(c, t);
   });
 
   function drawCrossSection(c: CanvasRenderingContext2D, x: number, y: number, r: number) {
