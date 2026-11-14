@@ -19,9 +19,9 @@ export default function Plate({ src, alt }: { src: string; alt: string }) {
       </svg>
       {/* plate rim */}
       <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_35%_30%,#f4f5f6,#b8bec4_60%,#7c838b)] shadow-[0_18px_30px_-10px_rgb(0_0_0/0.7),0_0_60px_-10px_rgb(255_210_122/0.35)]" />
-      {/* eslint-disable-next-line @next/next/no-img-element -- data URL from the canvas */}
       {/* zoomed in a bit so the hint text at the board's edge doesn't show */}
       <div className="absolute inset-[18px] overflow-hidden rounded-full">
+        {/* eslint-disable-next-line @next/next/no-img-element -- data URL from the canvas */}
         <img src={src} alt={alt} className="size-full scale-[1.22] object-cover" />
       </div>
       <div className="pointer-events-none absolute inset-[18px] rounded-full shadow-[inset_0_4px_18px_rgb(0_0_0/0.55)]" />
