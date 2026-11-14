@@ -199,11 +199,11 @@ export default function Pocha() {
         {count}
       </div>
       <div className="flex items-end justify-between gap-3 rounded-lg bg-night-soft p-4">
-        <div>
+        <div className="min-w-0">
           <p className={`m-0 font-sign text-3xl ${tier === 0 ? "text-bulb" : tier === 3 ? "text-stool" : "text-ink"}`}>{TIER_LABEL[tier]}</p>
           <p className="m-0 mt-1 text-[15px] text-ink-dim">{last.note}</p>
         </div>
-        <p className="m-0 font-sign text-6xl leading-none tabular-nums">
+        <p className="m-0 flex-none font-sign text-6xl leading-none whitespace-nowrap tabular-nums">
           {last.score}
           <span className="text-lg text-ink-dim">점</span>
         </p>
