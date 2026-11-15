@@ -1,27 +1,44 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { boardPoint, closeness, cookColor, useBoard, useLoop, bulbLight, snapshot } from "@/lib/canvas";
+import { boardPoint, closeness, useBoard, useLoop, bulbLight, snapshot, steam } from "@/lib/canvas";
+import { crossfade, put, useSprites } from "@/lib/sprites";
+import { BottomBar, Gauge, gaugePos, Hint, Steps } from "./Kit";
 import type { GameProps } from "./types";
 
-// 4 pieces of heart on one skewer, each piece split into 2x4 cells for the sauce
-const PIECES = [70, 135, 200, 265];
-const PW = 54;
-const PH = 72;
-const CY = 190;
-const COLS = 2;
-const ROWS = 4;
-const CELLS = PIECES.length * COLS * ROWS;
+// 4 pieces of heart on one skewer (positions from the design handoff),
+// each piece split into 4x2 cells to track where the sauce went
+const PIECES = [52, 112, 172, 232]; // left x
+const PY = 152; // top y
+const PW = 64;
+const PH = 56;
+const CY = PY + PH / 2;
+const COLS = 4;
+const ROWS = 2;
+const PER_PIECE = COLS * ROWS;
+const CELLS = PIECES.length * PER_PIECE;
 
 const COOK_SPEED = 1 / 7; // about 4-6 seconds a side is just right
 const BURN_AT = 1.35;
 
+const ART = {
+  "yeomtong-grill-bg": [360, 360],
+  "yeomtong-skewer": [330, 20],
+  "yeomtong-piece-raw": [64, 56],
+  "yeomtong-piece-cooked": [64, 56],
+  "yeomtong-piece-burnt": [64, 56],
+  "yeomtong-glaze-overlay": [64, 56],
+  "yeomtong-brush": [144, 36],
+} as const satisfies Record<string, [number, number]>;
+
 export default function Yeomtong({ onDone }: GameProps) {
   const ref = useBoard();
+  const art = useSprites(ART);
   const s = useRef({
     down: 0, // which side is on the grill
     cook: [0, 0],
     sauce: [new Array(CELLS).fill(false), new Array(CELLS).fill(false)],
+    flips: 0,
     flipAt: -1,
     brush: null as { x: number; y: number } | null,
     painting: false,
@@ -50,14 +67,13 @@ export default function Yeomtong({ onDone }: GameProps) {
   }
 
   function paint(x: number, y: number) {
-    const g = s.current;
-    const side = g.sauce[topSide()];
+    const side = s.current.sauce[topSide()];
     PIECES.forEach((px, p) => {
       for (let cy = 0; cy < ROWS; cy++) {
         for (let cx = 0; cx < COLS; cx++) {
-          const cellX = px - PW / 2 + (cx + 0.5) * (PW / COLS);
-          const cellY = CY - PH / 2 + (cy + 0.5) * (PH / ROWS);
-          if (Math.hypot(cellX - x, cellY - y) < 20) side[p * COLS * ROWS + cy * COLS + cx] = true;
+          const cellX = px + (cx + 0.5) * (PW / COLS);
+          const cellY = PY + (cy + 0.5) * (PH / ROWS);
+          if (Math.hypot(cellX - x, cellY - y) < 18) side[p * PER_PIECE + cy * COLS + cx] = true;
         }
       }
     });
@@ -83,31 +99,16 @@ export default function Yeomtong({ onDone }: GameProps) {
   function draw(c: CanvasRenderingContext2D, t: number) {
     const g = s.current;
     const top = topSide();
+    c.clearRect(0, 0, 360, 360);
+    if (!art) return;
 
-    // charcoal grill
-    c.fillStyle = "#1c1512";
-    c.fillRect(0, 0, 360, 360);
-    for (let i = 0; i < 14; i++) {
-      const flicker = 0.5 + 0.5 * Math.sin(t * 6 + i * 1.7);
-      c.fillStyle = `rgba(255,${90 + 40 * flicker},30,${0.25 + 0.25 * flicker})`;
-      c.beginPath();
-      c.arc(20 + i * 25, 320 + (i % 3) * 10, 18, 0, Math.PI * 2);
-      c.fill();
-    }
-    c.strokeStyle = "#5a5552";
-    c.lineWidth = 4;
-    for (let y = 120; y <= 270; y += 25) {
-      c.beginPath();
-      c.moveTo(10, y);
-      c.lineTo(350, y);
-      c.stroke();
-    }
+    // charcoal glows a little brighter and dimmer
+    c.globalAlpha = 0.86 + 0.14 * Math.sin(t * 3.4) * Math.sin(t * 1.3);
+    put(c, art["yeomtong-grill-bg"], 0, 0);
+    c.globalAlpha = 1;
+    put(c, art["yeomtong-skewer"], 15, 170);
 
-    // skewer
-    c.fillStyle = "#c9a36a";
-    c.fillRect(18, CY - 4, 330, 8);
-
-    // flip squash
+    // flip = the pieces squash flat and open up again
     const flipT = g.flipAt < 0 ? 1 : Math.min(1, (t - g.flipAt) / 0.25);
     const squash = flipT < 1 ? Math.abs(Math.cos(flipT * Math.PI)) : 1;
 
@@ -115,69 +116,43 @@ export default function Yeomtong({ onDone }: GameProps) {
     c.translate(0, CY);
     c.scale(1, Math.max(0.15, squash));
     c.translate(0, -CY);
+    const looks = [
+      { sprite: art["yeomtong-piece-raw"], from: 0 },
+      { sprite: art["yeomtong-piece-cooked"], from: 0.45 },
+      { sprite: art["yeomtong-piece-burnt"], from: 1.0 },
+    ];
     PIECES.forEach((px, p) => {
-      c.fillStyle = cookColor(g.cook[top]);
-      c.beginPath();
-      c.roundRect(px - PW / 2, CY - PH / 2, PW, PH, 16);
-      c.fill();
-      // grill marks show up once that side has been on the grill
-      if (g.cook[top] > 0.3) {
-        c.strokeStyle = `rgba(30,18,12,${Math.min(0.7, g.cook[top] - 0.2)})`;
-        c.lineWidth = 4;
-        for (let k = -1; k <= 1; k++) {
-          c.beginPath();
-          c.moveTo(px - PW / 2 + 6, CY + k * 18 - 6);
-          c.lineTo(px + PW / 2 - 6, CY + k * 18 + 6);
-          c.stroke();
-        }
-      }
-      // sauce
-      for (let cy = 0; cy < ROWS; cy++) {
-        for (let cx = 0; cx < COLS; cx++) {
-          if (!g.sauce[top][p * COLS * ROWS + cy * COLS + cx]) continue;
-          const x = px - PW / 2 + cx * (PW / COLS);
-          const y = CY - PH / 2 + cy * (PH / ROWS);
-          c.fillStyle = "rgba(168,32,18,0.82)";
-          c.beginPath();
-          c.roundRect(x + 2, y + 2, PW / COLS - 4, PH / ROWS - 4, 6);
-          c.fill();
-          c.fillStyle = "rgba(255,220,200,0.35)"; // shine
-          c.fillRect(x + 6, y + 5, 6, 3);
-        }
+      crossfade(c, looks, g.cook[top], px, PY);
+      const painted = g.sauce[top].slice(p * PER_PIECE, (p + 1) * PER_PIECE).filter(Boolean).length / PER_PIECE;
+      if (painted > 0) {
+        c.save();
+        c.globalAlpha = painted;
+        put(c, art["yeomtong-glaze-overlay"], px, PY);
+        c.restore();
       }
     });
     c.restore();
 
-    // smoke from the side on the grill
-    c.fillStyle = "rgba(220,220,220,0.12)";
-    for (let i = 0; i < 5; i++) {
-      const ph = (t * 0.5 + i / 5) % 1;
-      c.beginPath();
-      c.arc(60 + i * 60 + Math.sin(t + i) * 10, 110 - ph * 90, 14 + ph * 16, 0, Math.PI * 2);
-      c.fill();
-    }
+    // steam from the side that's on the coals
+    if (g.cook[g.down] > 0.25) steam(c, 180, PY - 6, t, 4);
 
-    // brush
+    // brush, its tip is where your finger is
     if (g.brush) {
       c.save();
       c.translate(g.brush.x, g.brush.y);
-      c.rotate(-0.5);
-      c.fillStyle = "#8a5a2b";
-      c.fillRect(-4, -46, 8, 34);
-      c.fillStyle = "#b02a1a";
-      c.beginPath();
-      c.ellipse(0, -6, 12, 16, 0, 0, Math.PI * 2);
-      c.fill();
+      c.rotate(-0.45);
+      put(c, art["yeomtong-brush"], -140, -18);
       c.restore();
     }
   }
 
   const g = s.current;
   const coverage = (i: number) => Math.round((g.sauce[i].filter(Boolean).length / CELLS) * 100);
-  const sideName = (i: number) => (i === 0 ? "앞면" : "뒷면");
+  const ready = g.cook.every((c) => c >= 0.55) && coverage(0) >= 70 && coverage(1) >= 70;
+  const step = ready ? 2 : g.flips === 0 ? 0 : 1;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-5">
       <canvas
         ref={ref}
         className="board"
@@ -197,36 +172,27 @@ export default function Yeomtong({ onDone }: GameProps) {
         onPointerUp={() => (g.painting = false)}
         onPointerLeave={() => (g.brush = null)}
       />
-      <div className="grid grid-cols-2 gap-2 text-sm">
-        {[0, 1].map((i) => (
-          <div key={i} className="rounded-md bg-night-soft px-3 py-2">
-            <div className="flex justify-between">
-              <span>{sideName(i)}</span>
-              <span className={i === g.down ? "text-bulb" : ""}>
-                {i === g.down ? "굽는 중 · " : "위 · "}양념 {coverage(i)}%
-              </span>
-            </div>
-            <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-black/40">
-              <div className="h-full rounded-full" style={{ width: `${Math.min(100, (g.cook[i] / 1.1) * 100)}%`, background: cookColor(g.cook[i]) }} />
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="grid grid-cols-2 gap-2">
+      <Gauge labels={["날것", "잘 익음", "탐"]} pos={gaugePos(g.cook[g.down], 0, 0.55, 0.9, BURN_AT)} />
+      <Hint>
+        아래쪽이 익는 동안 붓으로 위쪽에 양념을 발라요 · 양념 앞 {coverage(0)}% · 뒤 {coverage(1)}%
+      </Hint>
+      <Steps steps={["한쪽 굽기", "뒤집기", "내기"]} current={step} />
+      <BottomBar>
         <button
           type="button"
-          className="btn btn-ghost"
+          className="btn btn-ghost w-[40%] flex-none"
           onClick={() => {
             g.down = 1 - g.down;
+            g.flips += 1;
             g.flipAt = performance.now() / 1000;
           }}
         >
           뒤집기
         </button>
-        <button type="button" className="btn" onClick={finish}>
-          손님께 드리기
+        <button type="button" className="btn flex-1" onClick={finish}>
+          다 됐어요
         </button>
-      </div>
+      </BottomBar>
     </div>
   );
 }

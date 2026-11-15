@@ -1,11 +1,20 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { clamp, steam, useBoard, useLoop, bulbLight, snapshot } from "@/lib/canvas";
+import { put, useSprites } from "@/lib/sprites";
+import { BottomBar, Hint } from "./Kit";
 import type { GameProps } from "./types";
 
-const SKEWER_X = 150;
-const STRIP_Y = 290;
+const ART = {
+  "eomuk-broth-pot-bg": [360, 360],
+  "eomuk-skewer": [20, 330],
+  "eomuk-sheet-folded": [120, 56],
+  "eomuk-sheet-flat": [200, 120],
+} as const satisfies Record<string, [number, number]>;
+
+const SKEWER_X = 180;
+const STRIP_Y = 300;
 const SPEED = 120; // px per second
 const GAP = 58; // distance between fold marks
 const FOLDS = 6;
@@ -14,6 +23,8 @@ const MISS = 32; // px
 
 export default function Eomuk({ onDone }: GameProps) {
   const ref = useBoard();
+  const art = useSprites(ART);
+  const [, setTick] = useState(0);
   const s = useRef({
     offset: 0, // how far the strip has slid
     hits: [] as number[], // error in px for each fold, MISS = missed
@@ -48,6 +59,7 @@ export default function Eomuk({ onDone }: GameProps) {
     g.hits.push(Math.min(err, MISS));
     g.flash = { text: err <= PERFECT ? "딱!" : err < MISS / 2 ? "좋아요" : "삐끗", at: performance.now() / 1000 };
     if (g.hits.length >= FOLDS) g.endAt = performance.now() / 1000;
+    setTick((n) => n + 1);
   }
 
   useLoop((dt, t) => {
@@ -63,6 +75,7 @@ export default function Eomuk({ onDone }: GameProps) {
         g.hits.push(MISS);
         g.flash = { text: "놓쳤어요", at: t };
         if (g.hits.length >= FOLDS) g.endAt = t;
+        setTick((n) => n + 1);
       }
     } else if (t - g.endAt > 0.8) {
       finish();
@@ -73,83 +86,66 @@ export default function Eomuk({ onDone }: GameProps) {
 
   function draw(c: CanvasRenderingContext2D, t: number) {
     const g = s.current;
-
-    // eomuk broth pot behind
     c.fillStyle = "#1e232b";
     c.fillRect(0, 0, 360, 360);
-    c.fillStyle = "#8d949c";
-    c.fillRect(20, 200, 320, 160);
-    c.fillStyle = "#c9a46a";
-    c.fillRect(30, 210, 300, 30);
-    steam(c, 180, 200, t, 5);
+    if (!art) return;
+    put(c, art["eomuk-broth-pot-bg"], 0, 0);
+    steam(c, 180, 210, t, 5);
 
-    // skewer
-    c.strokeStyle = "#d6b47c";
-    c.lineWidth = 5;
-    c.lineCap = "round";
-    c.beginPath();
-    c.moveTo(SKEWER_X, 30);
-    c.lineTo(SKEWER_X, STRIP_Y + 30);
-    c.stroke();
+    put(c, art["eomuk-skewer"], SKEWER_X - 10, 20);
 
     // folds already on the skewer, stacked upward. Bad timing = crooked fold
     g.hits.forEach((err, i) => {
       if (err >= MISS) return;
-      const y = STRIP_Y - 24 - i * 30;
       const dir = i % 2 ? 1 : -1;
-      const tilt = (err / MISS) * 18 * dir;
-      c.fillStyle = "#e7c793";
-      c.strokeStyle = "#b8935a";
-      c.lineWidth = 2;
-      c.beginPath();
-      c.moveTo(SKEWER_X - 46, y + tilt);
-      c.quadraticCurveTo(SKEWER_X - 20 * dir, y - 22, SKEWER_X + 46, y - tilt);
-      c.lineTo(SKEWER_X + 46, y + 12 - tilt);
-      c.quadraticCurveTo(SKEWER_X - 20 * dir, y - 10, SKEWER_X - 46, y + 12 + tilt);
-      c.closePath();
-      c.fill();
-      c.stroke();
+      c.save();
+      c.translate(SKEWER_X, 250 - i * 34);
+      c.rotate(((err / MISS) * 16 * dir * Math.PI) / 180);
+      if (i % 2) c.scale(1, -1);
+      put(c, art["eomuk-sheet-folded"], -60, -28);
+      c.restore();
     });
 
     // the flat strip still sliding in from the right
     const startX = Math.max(SKEWER_X, markX(g.hits.length) - GAP / 2);
     const endX = markX(FOLDS - 1) + GAP / 2;
     if (endX > startX && g.endAt < 0) {
-      c.fillStyle = "#e7c793";
+      c.save();
       c.beginPath();
-      c.roundRect(startX, STRIP_Y - 12, endX - startX, 24, 6);
-      c.fill();
+      c.roundRect(startX, STRIP_Y - 20, endX - startX, 40, 6);
+      c.clip();
+      for (let x = endX - 100; x > startX - 100; x -= 96) put(c, art["eomuk-sheet-flat"], x, STRIP_Y - 30, 100, 60);
+      c.restore();
       for (let i = g.hits.length; i < FOLDS; i++) {
         const x = markX(i);
         if (x < startX - 2) continue;
-        c.fillStyle = "#c23a2a";
-        c.fillRect(x - 2, STRIP_Y - 16, 4, 32);
+        c.fillStyle = "#c2404a";
+        c.fillRect(x - 2, STRIP_Y - 24, 4, 48);
       }
     }
 
     // target line on the skewer
-    c.strokeStyle = "rgba(255,210,122,0.8)";
+    c.strokeStyle = "rgba(255,210,122,0.9)";
     c.setLineDash([4, 4]);
     c.lineWidth = 2;
     c.beginPath();
-    c.moveTo(SKEWER_X, STRIP_Y - 30);
-    c.lineTo(SKEWER_X, STRIP_Y + 30);
+    c.moveTo(SKEWER_X, STRIP_Y - 34);
+    c.lineTo(SKEWER_X, STRIP_Y + 34);
     c.stroke();
     c.setLineDash([]);
 
     c.textAlign = "center";
     if (t - g.flash.at < 0.6) {
       c.fillStyle = "#ffd27a";
-      c.font = "28px 'Do Hyeon', sans-serif";
-      c.fillText(g.flash.text, 270, 80);
+      c.font = "700 28px 'Gowun Batang', serif";
+      c.fillText(g.flash.text, 290, 90);
     }
-    c.fillStyle = "rgba(255,255,255,0.85)";
-    c.font = "17px 'Do Hyeon', sans-serif";
-    c.fillText(`빨간 표시가 꼬치에 닿을 때 탭 ${g.hits.length}/${FOLDS}`, 180, 350);
   }
 
+  const done = s.current.hits.length;
+
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-5">
       <canvas
         ref={ref}
         className="board"
@@ -163,6 +159,19 @@ export default function Eomuk({ onDone }: GameProps) {
           }
         }}
       />
+      <Hint>
+        빨간 표시가 꼬치에 닿을 때 탭 · <span className="font-mono text-bulb-300">{done}/{FOLDS}</span>
+      </Hint>
+      <div className="flex justify-center gap-1.5" aria-hidden="true">
+        {Array.from({ length: FOLDS }, (_, i) => (
+          <span key={i} className={`h-2 w-6 rounded-full ${i < done ? (s.current.hits[i] >= MISS ? "bg-chair-500" : "bg-bulb-300") : "bg-night-700"}`} />
+        ))}
+      </div>
+      <BottomBar>
+        <button type="button" className="btn flex-1" onPointerDown={tap}>
+          꽂기
+        </button>
+      </BottomBar>
     </div>
   );
 }

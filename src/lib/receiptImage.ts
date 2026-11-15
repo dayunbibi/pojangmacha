@@ -1,10 +1,19 @@
 import { MENUS, won } from "./menus";
-import { TIER_LABEL, tierOf } from "./customers";
+import { guestArt, MOODS, tierOf } from "./customers";
 import { loadFonts } from "./fonts";
 import type { Served } from "@/components/Pocha";
 
 const W = 1080;
 const H = 1920;
+
+const PAPER = "#f5ecdb";
+const INK = "#2b221a";
+const MUTED = "#6b5e4e";
+
+const DISPLAY = '"Gowun Batang", serif';
+const SANS = '"IBM Plex Sans KR", sans-serif';
+const BRUSH = '"Nanum Brush Script", cursive';
+const MONO = '"Nanum Gothic Coding", monospace';
 
 export function totalOf(served: Served[]) {
   return served.reduce((a, s) => a + s.paid + s.tip, 0);
@@ -19,185 +28,259 @@ export function verdict(served: Served[]) {
   return "내일은 문 닫을까…";
 }
 
-// 9:16 closing receipt: thermal paper on the tarp, ready for a story
+// the round stamp on the receipt: sold out unless something went out free
+export function stampOf(served: Served[]) {
+  return served.every((s) => s.paid > 0) ? "완판" : "마감";
+}
+
+// 2026.11.14 (토) 23:48
+export function receiptDate(d = new Date()) {
+  const day = "일월화수목금토"[d.getDay()];
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} (${day}) ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+async function loadImage(src: string) {
+  const img = new Image();
+  img.src = src;
+  await img.decode();
+  return img;
+}
+
+function dashed(c: CanvasRenderingContext2D, x1: number, x2: number, y: number) {
+  c.save();
+  c.strokeStyle = "#b9ab92";
+  c.lineWidth = 2;
+  c.setLineDash([6, 5]);
+  c.beginPath();
+  c.moveTo(x1, y);
+  c.lineTo(x2, y);
+  c.stroke();
+  c.restore();
+}
+
+// 9:16 story card, same layout as the design's ShareCard
 export async function makeReceiptImage(served: Served[], host: string): Promise<Blob> {
   const total = totalOf(served);
-  const bestDish = [...served].sort((a, b) => b.score - a.score)[0];
-  const date = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" });
-  const lines = served.map((s) => `${MENUS[s.menu].name} ${s.score}점 ${TIER_LABEL[tierOf(s.score)]} ${won(s.paid)} ${won(s.tip)}`);
-  await loadFonts(["향수병 포차 영수증 마감 합계 팁 손님 한줄평 오늘의 평가 서비스 너도 오늘 장사해봐", verdict(served), date, host, bestDish.reaction, bestDish.customer.who, ...lines].join(" "));
+  const date = receiptDate();
+  const sold = served.reduce((a, s) => a + s.paid, 0);
+  const tips = served.reduce((a, s) => a + s.tip, 0);
+  const avg = Math.round(served.reduce((a, s) => a + s.score, 0) / Math.max(1, served.length));
+  const words = served.map((s) => `${MENUS[s.menu].name} · ${s.customer.short} ${s.score} ${s.paid.toLocaleString("ko-KR")}`);
+  const [, tent, bulbs, ...faces] = await Promise.all([
+    loadFonts(
+      ["오늘 장사 끝! 향수병 포차 마감 영수증 # 메뉴 · 손님 점수 금액 서비스 판매 팁 평균 합계 원점+ 오늘도 수고했어요 또 오세요 완판",
+        "토론토에서 한국이 그리워서 만든 웹게임", stampOf(served), date, host, won(total), ...words].join(" "),
+    ),
+    loadImage("/art/bg/bg-tent-interior.svg"),
+    loadImage("/art/bg/bg-bulb-string.svg"),
+    ...served.map((s) => loadImage(guestArt(s.customer, MOODS[tierOf(s.score)]))),
+  ]);
 
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
   const c = canvas.getContext("2d")!;
+  const k = W / 440; // the tent and bulb art are drawn for a 440px wide phone
 
-  // night + tarp
   c.fillStyle = "#12151d";
   c.fillRect(0, 0, W, H);
-  const glow = c.createRadialGradient(W / 2, 0, 50, W / 2, 0, 1100);
-  glow.addColorStop(0, "rgba(236,106,31,0.45)");
-  glow.addColorStop(1, "rgba(236,106,31,0)");
-  c.fillStyle = glow;
+  c.globalAlpha = 0.5;
+  c.drawImage(tent, 0, 0, W, 560 * k);
+  c.globalAlpha = 1;
+  const fade = c.createLinearGradient(0, 0, 0, H);
+  fade.addColorStop(0, "rgba(18,21,29,0.2)");
+  fade.addColorStop(0.4, "rgba(18,21,29,0.75)");
+  fade.addColorStop(0.7, "#12151d");
+  c.fillStyle = fade;
   c.fillRect(0, 0, W, H);
-  c.fillStyle = "#ec6a1f";
-  c.fillRect(0, 0, W, 210);
-  for (let x = 0; x < W; x += 60) {
-    c.beginPath();
-    c.arc(x + 30, 210, 30, 0, Math.PI);
-    c.fill();
-  }
-  c.fillStyle = "rgba(255,255,255,0.14)";
-  for (let x = 0; x < W; x += 150) c.fillRect(x, 0, 4, 210);
-  c.textAlign = "center";
-  c.fillStyle = "#fff";
-  c.font = '110px "Do Hyeon"';
-  c.shadowColor = "rgba(255,210,122,0.8)";
-  c.shadowBlur = 30;
-  c.fillText("향수병 포차", W / 2, 150);
-  c.shadowBlur = 0;
+  c.drawImage(bulbs, 0, 40, W, 120 * k);
 
-  // receipt paper, slightly tilted, with a torn bottom edge
-  const px = 130;
-  const pw = W - px * 2;
-  // paper height follows the content, then it's centered under the tarp
-  c.font = '64px "Nanum Pen Script"';
-  const review = wrapLines(c, `"${bestDish.reaction}"`, pw - 120);
-  const ph = 486 + served.length * 116 + (review.length - 1) * 66 + 330; // room for the stamp at the bottom
-  const py = 270 + Math.max(0, (H - 250 - 270 - ph) / 2);
+  // title
+  c.textAlign = "center";
+  c.textBaseline = "alphabetic";
+  c.fillStyle = "#f7a066";
+  c.font = `72px ${BRUSH}`;
+  c.fillText("오늘 장사 끝!", W / 2, 330);
   c.save();
-  c.translate(W / 2, py + ph / 2);
-  c.rotate(-0.015);
-  c.translate(-W / 2, -(py + ph / 2));
-  c.fillStyle = "rgba(0,0,0,0.35)";
-  c.fillRect(px + 16, py + 20, pw, ph);
-  c.fillStyle = "#fff8ea";
+  c.shadowColor = "rgba(255,210,122,0.55)";
+  c.shadowBlur = 60;
+  c.fillStyle = "#fff3d6";
+  c.font = `700 132px ${DISPLAY}`;
+  c.fillText("향수병 포차", W / 2, 478);
+  c.restore();
+
+  // tonight's five guests
+  const R = 75;
+  const gap = 28;
+  let x0 = (W - (faces.length * R * 2 + (faces.length - 1) * gap)) / 2;
+  for (const face of faces) {
+    const cx = x0 + R;
+    const cy = 546 + R;
+    c.save();
+    c.shadowColor = "rgba(0,0,0,0.5)";
+    c.shadowBlur = 30;
+    c.shadowOffsetY = 10;
+    c.fillStyle = "#1a1e29";
+    c.beginPath();
+    c.arc(cx, cy, R, 0, Math.PI * 2);
+    c.fill();
+    c.restore();
+    c.save();
+    c.beginPath();
+    c.arc(cx, cy, R, 0, Math.PI * 2);
+    c.clip();
+    c.drawImage(face, x0 - 75, 546 - 68, 300, 375);
+    c.restore();
+    c.strokeStyle = "#ffd27a";
+    c.lineWidth = 8; // half sits outside, like the design's 4px ring at 1x
+    c.beginPath();
+    c.arc(cx, cy, R + 2, 0, Math.PI * 2);
+    c.stroke();
+    x0 += R * 2 + gap;
+  }
+
+  // receipt paper
+  const RX = 160;
+  const RW = 760;
+  const RY = 748;
+  const L = RX + 52;
+  const R2 = RX + RW - 52;
+  const bottom = 1630;
+  c.save();
+  c.shadowColor = "rgba(0,0,0,0.55)";
+  c.shadowBlur = 50;
+  c.shadowOffsetY = 30;
+  c.fillStyle = PAPER;
   c.beginPath();
-  c.moveTo(px, py);
-  c.lineTo(px + pw, py);
-  c.lineTo(px + pw, py + ph);
-  for (let x = px + pw; x > px; x -= 40) {
-    c.lineTo(x - 20, py + ph - 18);
-    c.lineTo(x - 40, py + ph);
+  c.moveTo(RX, RY);
+  c.lineTo(RX + RW, RY);
+  c.lineTo(RX + RW, bottom);
+  for (let x = RX + RW; x > RX; x -= 20) {
+    c.lineTo(x - 10, bottom + 14);
+    c.lineTo(x - 20, bottom);
   }
   c.closePath();
   c.fill();
+  c.restore();
 
-  const ink = "#2a2420";
-  const left = px + 60;
-  const right = px + pw - 60;
-  let y = py + 110;
-  c.fillStyle = ink;
-  c.font = 'bold 54px "Nanum Gothic Coding"';
-  c.fillText("마감 영수증", W / 2, y);
-  y += 56;
-  c.font = '32px "Nanum Gothic Coding"';
-  c.fillText(date, W / 2, y);
+  c.fillStyle = INK;
+  c.font = `700 46px ${DISPLAY}`;
+  c.fillText("향수병 포차", W / 2, RY + 88);
+  c.fillStyle = MUTED;
+  c.font = `23px ${MONO}`;
+  c.fillText(`마감 영수증 · ${date}`, W / 2, RY + 126);
+  dashed(c, L, R2, RY + 148);
 
-  const dashed = (yy: number) => {
-    c.save();
-    c.setLineDash([14, 10]);
-    c.strokeStyle = "rgba(42,36,32,0.6)";
-    c.lineWidth = 3;
-    c.beginPath();
-    c.moveTo(left, yy);
-    c.lineTo(right, yy);
-    c.stroke();
-    c.restore();
-  };
-  y += 50;
-  dashed(y);
-  y += 70;
+  // table: # | menu · guest | score | amount
+  const colScore = R2 - 206;
+  c.font = `21px ${MONO}`;
+  c.textAlign = "left";
+  c.fillText("#", L, RY + 186);
+  c.fillText("메뉴 · 손님", L + 46, RY + 186);
+  c.textAlign = "right";
+  c.fillText("점수", colScore, RY + 186);
+  c.fillText("금액", R2, RY + 186);
 
-  for (const s of served) {
+  let y = RY + 236;
+  for (const [i, s] of served.entries()) {
     c.textAlign = "left";
-    c.font = 'bold 42px "Nanum Gothic Coding"';
-    c.fillStyle = ink;
-    c.fillText(MENUS[s.menu].name, left, y);
+    c.fillStyle = MUTED;
+    c.font = `24px ${MONO}`;
+    c.fillText(String(i + 1).padStart(2, "0"), L, y);
+    c.fillStyle = INK;
+    c.font = `500 24px ${SANS}`;
+    const name = MENUS[s.menu].name;
+    c.fillText(name, L + 46, y);
+    const nw = c.measureText(`${name} `).width;
+    c.fillStyle = MUTED;
+    c.font = `24px ${SANS}`;
+    c.fillText(`· ${s.customer.short}`, L + 46 + nw, y);
+
     c.textAlign = "right";
-    c.fillText(s.paid === 0 ? "서비스" : won(s.paid), right, y);
-    y += 46;
-    c.textAlign = "left";
-    c.font = '32px "Nanum Gothic Coding"';
-    c.fillStyle = "rgba(42,36,32,0.7)";
-    c.fillText(`  ${s.score}점 · ${TIER_LABEL[tierOf(s.score)]}`, left, y);
-    if (s.tip > 0) {
-      c.textAlign = "right";
-      c.fillStyle = "#b84b10";
-      c.fillText(`팁 +${won(s.tip)}`, right, y);
+    c.fillStyle = INK;
+    c.font = `24px ${MONO}`;
+    c.fillText(String(s.score), colScore, y);
+    if (s.paid === 0) {
+      c.fillStyle = "#c4362a";
+      c.font = `600 24px ${SANS}`;
+      c.fillText("서비스", R2, y);
+      const sw = c.measureText("서비스 ").width;
+      c.fillStyle = MUTED;
+      c.font = `24px ${MONO}`;
+      const price = MENUS[s.menu].price.toLocaleString("ko-KR");
+      c.fillText(price, R2 - sw, y);
+      const pw = c.measureText(price).width;
+      c.fillRect(R2 - sw - pw, y - 8, pw, 2);
+    } else {
+      c.fillText(s.paid.toLocaleString("ko-KR"), R2, y);
     }
-    y += 70;
+    y += 55;
   }
 
-  dashed(y - 20);
-  y += 50;
-  c.fillStyle = ink;
+  dashed(c, L, R2, y - 18);
+  y += 30;
+  for (const [label, value] of [
+    ["판매", won(sold)],
+    ["팁", `+${won(tips)}`],
+    ["평균 점수", `${avg}점`],
+  ]) {
+    c.fillStyle = INK;
+    c.textAlign = "left";
+    c.font = `24px ${SANS}`;
+    c.fillText(label, L, y);
+    c.textAlign = "right";
+    c.font = `24px ${MONO}`;
+    c.fillText(value, R2, y);
+    y += 45;
+  }
+  dashed(c, L, R2, y - 18);
+  y += 42;
   c.textAlign = "left";
-  c.font = 'bold 56px "Nanum Gothic Coding"';
-  c.fillText("합계", left, y);
+  c.font = `700 38px ${SANS}`;
+  c.fillText("합계", L, y);
   c.textAlign = "right";
-  c.fillText(won(total), right, y);
-  y += 60;
-  dashed(y);
+  c.font = `700 38px ${MONO}`;
+  c.fillText(won(total), R2, y);
 
-  // best review in handwriting
-  y += 80;
-  c.textAlign = "left";
-  c.font = '32px "Nanum Gothic Coding"';
-  c.fillStyle = "rgba(42,36,32,0.7)";
-  c.fillText(`손님 한줄평 · ${bestDish.customer.who}`, left, y);
-  y += 70;
-  c.font = '64px "Nanum Pen Script"';
-  c.fillStyle = ink;
-  review.forEach((line, i) => c.fillText(line, left, y + i * 66));
-
-  // stamp under the review, sized to the verdict
-  const stampText = verdict(served);
-  c.font = '54px "Do Hyeon"';
-  const sw = Math.max(300, c.measureText(stampText).width + 70);
-  c.save();
-  c.translate(right - sw / 2 + 10, y + (review.length - 1) * 66 + 150);
-  c.rotate(-0.12);
-  c.strokeStyle = "#d7261e";
-  c.fillStyle = "#d7261e";
-  c.lineWidth = 8;
-  c.beginPath();
-  c.roundRect(-sw / 2, -70, sw, 140, 16);
-  c.stroke();
+  // barcode
+  y += 32;
+  for (let x = L; x < R2; x += 16) {
+    c.fillRect(x, y, 4, 60);
+    c.fillRect(x + 7, y, 5, 60);
+  }
+  c.fillStyle = MUTED;
   c.textAlign = "center";
-  c.font = '30px "Do Hyeon"';
-  c.fillText("오늘의 평가", 0, -18);
-  c.font = '54px "Do Hyeon"';
-  c.fillText(stampText, 0, 44);
-  c.restore();
+  c.font = `21px ${MONO}`;
+  c.fillText("오늘도 수고했어요 · 또 오세요", W / 2, y + 100);
+
+  // stamp hanging off the corner
+  c.save();
+  c.translate(RX + RW + 40 - 85, RY - 70 + 85);
+  c.rotate((-14 * Math.PI) / 180);
+  c.globalAlpha = 0.9;
+  c.strokeStyle = "#ff5a47";
+  c.lineWidth = 7;
+  c.beginPath();
+  c.arc(0, 0, 81, 0, Math.PI * 2);
+  c.stroke();
+  c.fillStyle = "#ff5a47";
+  c.font = `72px ${BRUSH}`;
+  c.textBaseline = "middle";
+  c.fillText(stampOf(served), 0, 4);
   c.restore();
 
   // footer
   c.textAlign = "center";
+  c.textBaseline = "alphabetic";
+  c.fillStyle = "#b8ab95";
+  c.font = `500 30px ${SANS}`;
+  c.fillText("토론토에서 한국이 그리워서 만든 웹게임", W / 2, 1790);
   c.fillStyle = "#ffd27a";
-  c.font = '52px "Do Hyeon"';
-  c.fillText("너도 오늘 장사해봐", W / 2, H - 140);
-  c.fillStyle = "#b9b0a3";
-  c.font = '36px "Nanum Gothic Coding"';
-  c.fillText(host, W / 2, H - 80);
+  c.font = `700 34px ${MONO}`;
+  c.fillText(host, W / 2, 1846);
 
   return new Promise((resolve, reject) => {
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/png");
   });
-}
-
-function wrapLines(c: CanvasRenderingContext2D, text: string, maxW: number) {
-  const out: string[] = [];
-  let line = "";
-  for (const word of text.split(" ")) {
-    const next = line ? `${line} ${word}` : word;
-    if (c.measureText(next).width > maxW && line) {
-      out.push(line);
-      line = word;
-    } else {
-      line = next;
-    }
-  }
-  if (line) out.push(line);
-  return out.slice(0, 3);
 }

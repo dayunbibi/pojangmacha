@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 import { boardPoint, clamp, useBoard, useLoop, bulbLight, snapshot } from "@/lib/canvas";
+import { put, useSprites, type Sprite } from "@/lib/sprites";
+import { BottomBar, Hint, Steps } from "./Kit";
 import type { GameProps } from "./types";
 
 type Item = { key: string; label: string; color: string; wrong?: boolean };
@@ -24,9 +26,27 @@ const TOO_FAST = 1.6; // px per ms, faster than this and the side bursts
 
 const ROLL_X0 = 30;
 const ROLL_X1 = 330;
+const ROLL_Y = 136; // top of the finished roll (306x88 picture)
+
+const ART = {
+  "gimbap-mat": [320, 280],
+  "gimbap-seaweed": [280, 220],
+  "gimbap-rice": [270, 160],
+  "gimbap-filling-danmuji": [240, 24],
+  "gimbap-filling-ham": [240, 24],
+  "gimbap-filling-egg": [240, 24],
+  "gimbap-filling-spinach": [240, 24],
+  "gimbap-filling-carrot": [240, 24],
+  "gimbap-filling-strawberry": [60, 68],
+  "gimbap-roll-half": [320, 200],
+  "gimbap-roll-full": [306, 88],
+  "gimbap-slice": [120, 120],
+  "gimbap-knife": [220, 60],
+} as const satisfies Record<string, [number, number]>;
 
 export default function Gimbap({ onDone }: GameProps) {
   const ref = useBoard();
+  const art = useSprites(ART);
   const [phase, setPhase] = useState<"fill" | "roll" | "cut">("fill");
   const [placed, setPlaced] = useState<Item[]>([]);
   const s = useRef({
@@ -86,139 +106,88 @@ export default function Gimbap({ onDone }: GameProps) {
     bulbLight(c, t);
   });
 
-  function drawCrossSection(c: CanvasRenderingContext2D, x: number, y: number, r: number) {
-    c.fillStyle = "#1d2a1b"; // laver
+  // the laid-out sheet: seaweed, rice and fillings (clipped as it gets rolled up)
+  function drawSheet(c: CanvasRenderingContext2D, a: Record<keyof typeof ART, Sprite>, bottom: number) {
+    c.save();
     c.beginPath();
-    c.arc(x, y, r, 0, Math.PI * 2);
-    c.fill();
-    c.fillStyle = "#f6f2e8";
-    c.beginPath();
-    c.arc(x, y, r - 4, 0, Math.PI * 2);
-    c.fill();
-    const fills = placed.filter((p) => p.key !== "rice");
-    fills.forEach((f, i) => {
-      const a = (i / Math.max(1, fills.length)) * Math.PI * 2;
-      c.fillStyle = f.color;
-      c.beginPath();
-      c.arc(x + Math.cos(a) * r * 0.32, y + Math.sin(a) * r * 0.32, r * 0.2, 0, Math.PI * 2);
-      c.fill();
-    });
+    c.rect(0, 0, 360, bottom);
+    c.clip();
+    put(c, a["gimbap-seaweed"], 40, 70);
+    if (placed.some((p) => p.key === "rice")) put(c, a["gimbap-rice"], 45, 120);
+    placed
+      .filter((p) => p.key !== "rice")
+      .forEach((f, i) => {
+        if (f.key === "strawberry") put(c, a["gimbap-filling-strawberry"], 258, 84);
+        else put(c, a[`gimbap-filling-${f.key}` as keyof typeof ART], 60, 150 + i * 26);
+      });
+    c.restore();
   }
 
   function draw(c: CanvasRenderingContext2D, t: number) {
     const g = s.current;
-
-    // bamboo mat on a steel counter
-    c.fillStyle = "#b8bec4";
+    c.fillStyle = "#3a3f47"; // steel counter
     c.fillRect(0, 0, 360, 360);
-    c.fillStyle = "#cfc08a";
-    c.fillRect(40, 30, 280, 300);
-    c.strokeStyle = "#a8975e";
-    c.lineWidth = 2;
-    for (let y = 36; y < 330; y += 10) {
-      c.beginPath();
-      c.moveTo(40, y);
-      c.lineTo(320, y);
-      c.stroke();
-    }
+    if (!art) return;
+    put(c, art["gimbap-mat"], 20, 40);
 
-    if (phase === "fill" || phase === "roll") {
-      const rolled = phase === "roll" ? g.roll : 0;
-      const laverTop = 50;
-      const laverBottom = 310 - rolled * 240;
+    if (phase === "fill") drawSheet(c, art, 360);
 
-      if (laverBottom > laverTop) {
-        c.fillStyle = "#1d2a1b";
-        c.fillRect(60, laverTop, 240, laverBottom - laverTop);
-        if (placed.some((p) => p.key === "rice")) {
-          c.fillStyle = "#f6f2e8";
-          c.fillRect(64, Math.max(laverTop + 50, laverTop), 232, Math.max(0, laverBottom - laverTop - 54));
-          // rice grains texture
-          c.fillStyle = "#e4dccb";
-          for (let i = 0; i < 60; i++) {
-            const gx = 66 + ((i * 37) % 228);
-            const gy = laverTop + 54 + ((i * 53) % 200);
-            if (gy < laverBottom - 6) c.fillRect(gx, gy, 4, 2);
-          }
-        }
-        // fillings sit near the bottom edge, stacked as strips
-        placed
-          .filter((p) => p.key !== "rice")
-          .forEach((f, i) => {
-            const y = 250 - i * 13;
-            if (y < laverBottom - 8) {
-              c.fillStyle = f.color;
-              c.beginPath();
-              c.roundRect(70, y, 220, 11, 5);
-              c.fill();
-            }
-          });
+    if (phase === "roll") {
+      if (g.roll < 0.5) {
+        // first half: the sheet shrinks from the bottom and the roll grows
+        const bottom = 290 - g.roll * 200;
+        drawSheet(c, art, bottom);
+        const h = 34 + g.roll * 60;
+        put(c, art["gimbap-roll-full"], 34, bottom - h / 2, 292, h);
+      } else {
+        put(c, art["gimbap-roll-half"], 20, 70 + (g.roll - 0.5) * 80);
       }
-
-      if (phase === "roll") {
-        // the growing roll at the bottom edge of what's left
-        const r = 14 + rolled * 26;
-        c.fillStyle = "#1d2a1b";
+      if (t - g.burstAt < 1.2) {
+        // rice popping out the side
+        c.fillStyle = "#f3eee2";
         c.beginPath();
-        c.roundRect(56, laverBottom - r, 248, r * 2, r);
+        c.ellipse(322, 230, 12 + g.bursts * 4, 8, 0.3, 0, Math.PI * 2);
         c.fill();
-        if (t - g.burstAt < 1.2 || g.bursts > 0) {
-          // rice spilling out the side
-          c.fillStyle = "#f6f2e8";
-          c.beginPath();
-          c.ellipse(304, laverBottom, 10 + g.bursts * 4, 7, 0, 0, Math.PI * 2);
-          c.fill();
-        }
-        // arrow hint
-        if (g.roll < 0.15) {
-          c.fillStyle = "rgba(255,255,255,0.85)";
-          c.font = "18px 'Do Hyeon', sans-serif";
-          c.textAlign = "center";
-          c.fillText("↑ 천천히 위로 밀어요", 180, 30 + 22 * Math.abs(Math.sin(t * 2)));
-        }
+      }
+      if (g.roll < 0.15) {
+        c.fillStyle = "rgba(255,243,214,0.92)";
+        c.font = "600 16px 'IBM Plex Sans KR', sans-serif";
+        c.textAlign = "center";
+        c.fillText("↑ 천천히 위로 밀어요", 180, 28 + 10 * Math.abs(Math.sin(t * 2)));
       }
     }
 
     if (phase === "cut") {
-      const y = 180;
       const sorted = [...g.cuts].sort((a, b) => a - b);
-      const finished = g.finishedAt > 0;
-
-      if (!finished) {
-        c.fillStyle = "#1d2a1b";
-        c.beginPath();
-        c.roundRect(ROLL_X0, y - 26, ROLL_X1 - ROLL_X0, 52, 26);
-        c.fill();
-        c.fillStyle = "rgba(255,255,255,0.12)";
-        c.fillRect(ROLL_X0 + 20, y - 18, ROLL_X1 - ROLL_X0 - 40, 4); // sesame-oil shine
-        c.strokeStyle = "#f6f2e8";
+      if (g.finishedAt < 0) {
+        put(c, art["gimbap-roll-full"], 27, ROLL_Y);
+        c.strokeStyle = "rgba(243,238,226,0.9)";
         c.lineWidth = 2;
         for (const x of sorted) {
           c.beginPath();
-          c.moveTo(x, y - 28);
-          c.lineTo(x, y + 28);
+          c.moveTo(x, ROLL_Y + 6);
+          c.lineTo(x, ROLL_Y + 82);
           c.stroke();
         }
-        // knife follows your finger
-        c.fillStyle = "#dfe3e6";
-        c.fillRect(g.knifeX - 2, y - 90, 4, 64);
-        c.fillStyle = "#3b2b22";
-        c.fillRect(g.knifeX - 5, y - 120, 10, 32);
-        c.fillStyle = "rgba(255,255,255,0.9)";
-        c.font = "18px 'Do Hyeon', sans-serif";
+        // knife hangs above your finger, blade pointing down
+        c.save();
+        c.translate(g.knifeX, ROLL_Y + 14);
+        c.rotate(-Math.PI / 2);
+        put(c, art["gimbap-knife"], -8, -40);
+        c.restore();
+        c.fillStyle = "rgba(255,243,214,0.92)";
+        c.font = "600 16px 'IBM Plex Sans KR', sans-serif";
         c.textAlign = "center";
-        c.fillText(`탭해서 썰기 ${g.cuts.length}/${CUTS}`, 180, 290);
+        c.fillText(`탭해서 썰기 ${g.cuts.length}/${CUTS}`, 180, 300);
       } else {
-        // pieces lined up with the cut side showing. Thicker slice = bigger circle
+        // the 8 slices zig-zag on the mat, a thicker slice looks bigger
         const edges = [ROLL_X0, ...sorted, ROLL_X1];
         edges.slice(1).forEach((x1, i) => {
-          const w = x1 - edges[i];
-          drawCrossSection(c, 47 + i * 38, y, Math.max(8, Math.min(18, w * 0.5)));
+          const size = Math.max(36, Math.min(86, (x1 - edges[i]) * 1.6));
+          const cx = 52 + i * 36;
+          const cy = 150 + (i % 2) * 64;
+          put(c, art["gimbap-slice"], cx - size / 2, cy - size / 2, size, size);
         });
-        c.fillStyle = "rgba(255,255,255,0.9)";
-        c.font = "18px 'Do Hyeon', sans-serif";
-        c.textAlign = "center";
-        c.fillText("썰기 끝!", 180, 290);
       }
     }
   }
@@ -226,7 +195,7 @@ export default function Gimbap({ onDone }: GameProps) {
   const g = s.current;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-5">
       <canvas
         ref={ref}
         className="board"
@@ -273,32 +242,28 @@ export default function Gimbap({ onDone }: GameProps) {
 
       {phase === "fill" && (
         <>
-          <p className="m-0 text-sm text-ink-dim">밥 먼저 깔고, 김밥에 들어가는 재료만 골라 올려요.</p>
+          <Hint>밥 먼저 깔고, 김밥에 들어가는 재료만 골라 올려요</Hint>
           <div className="grid grid-cols-4 gap-2">
             {BUTTONS.map((item) => {
               const on = placed.some((p) => p.key === item.key);
               return (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => add(item)}
-                  disabled={on}
-                  aria-pressed={on}
-                  className="chip"
-                >
+                <button key={item.key} type="button" onClick={() => add(item)} disabled={on} aria-pressed={on} className="chip">
                   <span className="size-3 rounded-full" style={{ background: item.color }} aria-hidden="true" />
                   {item.label}
                 </button>
               );
             })}
           </div>
-          <button type="button" className="btn" disabled={placed.length === 0} onClick={() => setPhase("roll")}>
-            다 올렸어요, 말기
-          </button>
+          <BottomBar>
+            <button type="button" className="btn flex-1" disabled={placed.length === 0} onClick={() => setPhase("roll")}>
+              다 올렸어요, 말기
+            </button>
+          </BottomBar>
         </>
       )}
-      {phase === "roll" && <p className="m-0 text-sm text-ink-dim">김밥 위를 누른 채로 천천히 위로 밀어요. 너무 빠르면 옆구리가 터져요.</p>}
-      {phase === "cut" && <p className="m-0 text-sm text-ink-dim">칼을 움직여서 탭. 8조각이 같은 두께가 되게 썰어요.</p>}
+      {phase === "roll" && <Hint>김밥 위를 누른 채로 천천히 위로 밀어요. 너무 빠르면 옆구리가 터져요</Hint>}
+      {phase === "cut" && <Hint>칼을 움직여서 탭. 8조각이 같은 두께가 되게 썰어요</Hint>}
+      <Steps steps={["재료", "말기", "썰기"]} current={phase === "fill" ? 0 : phase === "roll" ? 1 : 2} />
     </div>
   );
 }

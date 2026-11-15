@@ -44,3 +44,4 @@ next-env.d.ts
 !.env.example
 
 # design reference from the design bot (not app code)
+/design/

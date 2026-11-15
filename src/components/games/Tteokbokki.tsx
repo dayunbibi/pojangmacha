@@ -1,12 +1,24 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { boardPoint, clamp, closeness, steam, useBoard, useLoop, bulbLight, snapshot } from "@/lib/canvas";
+import { boardPoint, closeness, steam, useBoard, useLoop, bulbLight, snapshot } from "@/lib/canvas";
+import { crossfade, put, useSprites } from "@/lib/sprites";
+import { BottomBar, Gauge, gaugePos, Hint, Steps } from "./Kit";
 import type { GameProps } from "./types";
 
 const CX = 180;
-const CY = 185;
-const R = 140;
+const CY = 180;
+
+const ART = {
+  "tteokbokki-gas-flame": [360, 360],
+  "tteokbokki-pan": [360, 360],
+  "tteokbokki-sauce-thin": [360, 360],
+  "tteokbokki-sauce-right": [360, 360],
+  "tteokbokki-sauce-thick": [360, 360],
+  "tteokbokki-scorched-edge": [360, 360],
+  "tteokbokki-rice-cake": [68, 30],
+  "tteokbokki-fishcake": [76, 48],
+} as const satisfies Record<string, [number, number]>;
 
 const REDUCE_SPEED = 1 / 13; // sauce gets thicker on its own
 const GOOD = [0.7, 0.85]; // thickness you want to stop at
@@ -22,6 +34,7 @@ const PIECES = Array.from({ length: 16 }, (_, i) => ({
 
 export default function Tteokbokki({ onDone }: GameProps) {
   const ref = useBoard();
+  const art = useSprites(ART);
   const s = useRef({
     thick: 0.15,
     stick: 0, // how much is sticking to the bottom right now
@@ -72,75 +85,53 @@ export default function Tteokbokki({ onDone }: GameProps) {
 
   function draw(c: CanvasRenderingContext2D, t: number) {
     const g = s.current;
-    c.fillStyle = "#2b2f36";
+    c.fillStyle = "#14161c";
     c.fillRect(0, 0, 360, 360);
+    if (!art) return;
 
-    // gas flame ring under the pan
-    for (let i = 0; i < 20; i++) {
-      const a = (i / 20) * Math.PI * 2;
-      c.fillStyle = `rgba(80,140,255,${0.4 + 0.3 * Math.sin(t * 9 + i)})`;
-      c.beginPath();
-      c.arc(CX + Math.cos(a) * (R + 10), CY + Math.sin(a) * (R + 10), 5, 0, Math.PI * 2);
-      c.fill();
-    }
+    c.globalAlpha = 0.75 + 0.25 * Math.abs(Math.sin(t * 2.2));
+    put(c, art["tteokbokki-gas-flame"], 0, 0);
+    c.globalAlpha = 1;
+    put(c, art["tteokbokki-pan"], 0, 0);
 
-    // wide flat pan
-    c.fillStyle = "#5c6066";
-    c.beginPath();
-    c.arc(CX, CY, R, 0, Math.PI * 2);
-    c.fill();
+    // sauce gets darker and thicker as it reduces
+    crossfade(
+      c,
+      [
+        { sprite: art["tteokbokki-sauce-thin"], from: 0 },
+        { sprite: art["tteokbokki-sauce-right"], from: 0.55 },
+        { sprite: art["tteokbokki-sauce-thick"], from: 0.95 },
+      ],
+      g.thick,
+      0,
+      0,
+      undefined,
+      undefined,
+      0.15,
+    );
 
-    // sauce: watery orange -> thick deep red
-    const k = clamp(g.thick / 1.1);
-    const r = Math.round(232 - 60 * k);
-    const gg = Math.round(110 - 80 * k);
-    const b = Math.round(70 - 45 * k);
-    c.fillStyle = `rgb(${r},${gg},${b})`;
-    c.beginPath();
-    c.arc(CX, CY, R - 10 - k * 18, 0, Math.PI * 2);
-    c.fill();
-
-    // burnt bits around the edge
-    if (g.burn > 0.05) {
-      c.strokeStyle = `rgba(30,15,10,${Math.min(0.8, g.burn)})`;
-      c.lineWidth = 6 + g.burn * 10;
-      c.beginPath();
-      c.arc(CX, CY, R - 14, 0, Math.PI * 2);
-      c.stroke();
+    if (g.burn > 0.02) {
+      c.globalAlpha = Math.min(1, g.burn * 1.4);
+      put(c, art["tteokbokki-scorched-edge"], 0, 0);
+      c.globalAlpha = 1;
     }
 
     // rice cakes and fish cakes go around when you stir
     for (const p of PIECES) {
       const a = p.a + g.spin * 0.7;
-      const x = CX + Math.cos(a) * p.r;
-      const y = CY + Math.sin(a) * p.r;
       c.save();
-      c.translate(x, y);
+      c.translate(CX + Math.cos(a) * p.r, CY + Math.sin(a) * p.r);
       c.rotate(p.rot + g.spin * 0.4);
-      if (p.fish) {
-        c.fillStyle = "#e9c48c";
-        c.beginPath();
-        c.moveTo(-14, 10);
-        c.lineTo(14, 10);
-        c.lineTo(0, -14);
-        c.closePath();
-        c.fill();
-      } else {
-        c.fillStyle = "#f4e3cf";
-        c.beginPath();
-        c.roundRect(-16, -6, 32, 12, 6);
-        c.fill();
-        c.fillStyle = "rgba(190,40,20,0.55)"; // sauce coating
-        c.fillRect(-14, -1, 28, 5);
-      }
+      if (p.fish) put(c, art["tteokbokki-fishcake"], -26, -16, 52, 33);
+      else put(c, art["tteokbokki-rice-cake"], -27, -12, 54, 24);
       c.restore();
     }
 
     // bubbles pop more as it reduces
-    const n = 3 + Math.round(k * 9);
-    c.strokeStyle = "rgba(255,200,170,0.6)";
+    const k = Math.min(1, g.thick / 1.1);
+    c.strokeStyle = "rgba(255,200,170,0.55)";
     c.lineWidth = 2;
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < 3 + Math.round(k * 9); i++) {
       const ph = (t * 1.3 + i * 0.37) % 1;
       const a = i * 2.39;
       const rr = 20 + ((i * 47) % 100);
@@ -150,13 +141,13 @@ export default function Tteokbokki({ onDone }: GameProps) {
       c.stroke();
     }
     c.globalAlpha = 1;
-    steam(c, CX, 40, t, 4);
+    steam(c, CX, 46, t, 4);
 
     if (g.spin < 1) {
-      c.fillStyle = "rgba(255,255,255,0.9)";
-      c.font = "18px 'Do Hyeon', sans-serif";
+      c.fillStyle = "rgba(255,243,214,0.92)";
+      c.font = "600 16px 'IBM Plex Sans KR', sans-serif";
       c.textAlign = "center";
-      c.fillText("↻ 냄비 위에서 빙글빙글", CX, 350);
+      c.fillText("↻ 냄비 위에서 빙글빙글", CX, 348);
     }
   }
 
@@ -178,10 +169,10 @@ export default function Tteokbokki({ onDone }: GameProps) {
   }
 
   const g = s.current;
-  const thickPct = clamp(g.thick / 1.25) * 100;
+  const burning = g.stick > 0.65;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-5">
       <canvas
         ref={ref}
         className="board"
@@ -195,23 +186,16 @@ export default function Tteokbokki({ onDone }: GameProps) {
         onPointerMove={(e) => g.stirring && stir(e)}
         onPointerUp={() => (g.stirring = false)}
       />
-      <div className="flex flex-col gap-1.5 rounded-md bg-night-soft px-3 py-2 text-sm">
-        <div className="flex justify-between">
-          <span>국물 농도</span>
-          <span className={g.stick > 0.65 ? "text-stool" : "text-ink-dim"}>{g.stick > 0.65 ? "바닥 눌어붙는 중!" : "잘 젓고 있어요"}</span>
-        </div>
-        <div className="relative h-3 overflow-hidden rounded-full bg-black/40">
-          <div className="absolute inset-y-0 left-0 rounded-full bg-tarp" style={{ width: `${thickPct}%` }} />
-          {/* the zone where you should turn the fire off */}
-          <div
-            className="absolute inset-y-0 rounded-full border-2 border-bulb"
-            style={{ left: `${(GOOD[0] / 1.25) * 100}%`, width: `${((GOOD[1] - GOOD[0]) / 1.25) * 100}%` }}
-          />
-        </div>
-      </div>
-      <button type="button" className="btn" onClick={finish}>
-        불 끄고 담기
-      </button>
+      <Gauge labels={["묽음", "딱 좋음", "졸음"]} pos={gaugePos(g.thick, 0.15, GOOD[0], GOOD[1], OVERCOOKED)} />
+      <Hint>
+        {burning ? <span className="font-semibold text-chair-500">바닥이 눌어붙고 있어요! 저어주세요</span> : "빙글빙글 저어서 눌어붙지 않게, 딱 좋을 때 불을 꺼요"}
+      </Hint>
+      <Steps steps={["젓기", "불 끄기"]} current={g.thick >= GOOD[0] ? 1 : 0} />
+      <BottomBar>
+        <button type="button" className="btn flex-1" onClick={finish}>
+          불 끄고 담기
+        </button>
+      </BottomBar>
     </div>
   );
 }

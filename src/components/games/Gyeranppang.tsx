@@ -1,13 +1,25 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { clamp, closeness, useBoard, useLoop, bulbLight, snapshot } from "@/lib/canvas";
+import { clamp, closeness, steam, useBoard, useLoop, bulbLight, snapshot } from "@/lib/canvas";
+import { crossfade, put, useSprites } from "@/lib/sprites";
+import { BottomBar, Gauge, gaugePos, Hint, Steps } from "./Kit";
 import type { GameProps } from "./types";
 
-const MOLDS = [70, 180, 290];
-const MOLD_Y = 220;
-const MOLD_W = 84;
-const MOLD_H = 112;
+const ART = {
+  "gyeranppang-mold": [360, 220],
+  "gyeranppang-batter-kettle": [150, 120],
+  "gyeranppang-egg-whole": [50, 64],
+  "gyeranppang-egg-cracked": [92, 84],
+  "gyeranppang-bake-batter": [96, 148],
+  "gyeranppang-bake-golden": [96, 148],
+  "gyeranppang-bake-burnt": [96, 148],
+} as const satisfies Record<string, [number, number]>;
+
+const MOLDS = [75, 180, 285];
+const MOLD_Y = 180;
+const MOLD_W = 96;
+const MOLD_H = 148;
 
 const FILL = [0.7, 0.82]; // batter line
 const POUR_SPEED = 0.5; // full mold in 2 seconds
@@ -18,6 +30,7 @@ type Step = "pour" | "egg" | "bake";
 
 export default function Gyeranppang({ onDone }: GameProps) {
   const ref = useBoard();
+  const art = useSprites(ART);
   const [step, setStep] = useState<Step>("pour");
   const [mold, setMold] = useState(0);
   const s = useRef({
@@ -71,40 +84,42 @@ export default function Gyeranppang({ onDone }: GameProps) {
     const g = s.current;
     c.fillStyle = "#24262b";
     c.fillRect(0, 0, 360, 360);
-    // cast iron plate
-    c.fillStyle = "#3d3f45";
-    c.beginPath();
-    c.roundRect(14, 130, 332, 190, 18);
-    c.fill();
-
-    // bake color: batter yellow -> golden -> dark
-    const b = g.bake;
-    const crust = b < 0.7 ? `rgb(${246 - b * 30},${214 - b * 40},${120 - b * 60})` : `rgb(${225 - (b - 0.7) * 260},${186 - (b - 0.7) * 260},${78 - (b - 0.7) * 120})`;
+    if (!art) return;
+    put(c, art["gyeranppang-mold"], 0, 70);
+    const top = MOLD_Y - MOLD_H / 2;
 
     MOLDS.forEach((mx, i) => {
-      const top = MOLD_Y - MOLD_H / 2;
-      c.fillStyle = "#1b1c20";
-      c.beginPath();
-      c.roundRect(mx - MOLD_W / 2, top, MOLD_W, MOLD_H, 24);
-      c.fill();
-
-      // batter level
+      const x = mx - MOLD_W / 2;
+      // batter fills from the bottom of the cell
       const f = Math.min(1, g.fill[i]);
       if (f > 0) {
-        const h = MOLD_H * f;
         c.save();
         c.beginPath();
-        c.roundRect(mx - MOLD_W / 2 + 4, top + 4, MOLD_W - 8, MOLD_H - 8, 20);
+        c.rect(x, top + MOLD_H * (1 - f), MOLD_W, MOLD_H * f);
         c.clip();
-        c.fillStyle = step === "bake" ? crust : "#f3d27e";
-        c.fillRect(mx - MOLD_W / 2, top + MOLD_H - h, MOLD_W, h);
+        if (step === "bake") {
+          crossfade(
+            c,
+            [
+              { sprite: art["gyeranppang-bake-batter"], from: 0 },
+              { sprite: art["gyeranppang-bake-golden"], from: 0.55 },
+              { sprite: art["gyeranppang-bake-burnt"], from: 1.05 },
+            ],
+            g.bake,
+            x,
+            top,
+            undefined,
+            undefined,
+            0.2,
+          );
+        } else put(c, art["gyeranppang-bake-batter"], x, top);
         c.restore();
       }
       if (g.fill[i] > 1) {
         // overflow drips
         c.fillStyle = "#f3d27e";
         c.beginPath();
-        c.ellipse(mx + MOLD_W / 2 - 4, top + 10, 10, 18, 0, 0, Math.PI * 2);
+        c.ellipse(mx + MOLD_W / 2 - 6, top + 14, 9, 16, 0, 0, Math.PI * 2);
         c.fill();
       }
 
@@ -116,63 +131,43 @@ export default function Gyeranppang({ onDone }: GameProps) {
         for (const level of FILL) {
           const y = top + MOLD_H * (1 - level);
           c.beginPath();
-          c.moveTo(mx - MOLD_W / 2 - 6, y);
-          c.lineTo(mx + MOLD_W / 2 + 6, y);
+          c.moveTo(x - 4, y);
+          c.lineTo(x + MOLD_W + 4, y);
           c.stroke();
         }
         c.setLineDash([]);
       }
 
-      // egg that landed
+      // egg that landed (fades a little once it is golden, the bake picture has its own yolk)
       const e = g.egg[i];
-      if (e !== null) drawEgg(c, mx + e, top + MOLD_H * 0.4, step === "bake" ? b : 0);
+      if (e !== null) {
+        c.globalAlpha = step === "bake" ? clamp(1 - (g.bake - 0.4) * 2) : 1;
+        put(c, art["gyeranppang-egg-cracked"], mx + e - 30, top + MOLD_H * 0.32 - 27, 60, 55);
+        c.globalAlpha = 1;
+      }
     });
 
-    // pouring stream / swinging egg above the current mold
+    // kettle / swinging egg above the current mold
     const mx = MOLDS[mold];
-    c.textAlign = "center";
-    c.font = "17px 'Do Hyeon', sans-serif";
-    c.fillStyle = "rgba(255,255,255,0.9)";
     if (step === "pour") {
-      c.fillStyle = "#c9ccd2";
-      c.beginPath();
-      c.roundRect(mx - 26, 30, 52, 50, 8); // batter kettle
-      c.fill();
+      const flip = mold === MOLDS.length - 1; // last mold is near the right edge
+      c.save();
+      c.translate(mx, 0);
+      if (flip) c.scale(-1, 1);
+      if (g.pouring) c.rotate(0.12);
+      put(c, art["gyeranppang-batter-kettle"], -5, 4, 105, 84);
+      c.restore();
       if (g.pouring) {
         c.fillStyle = "#f3d27e";
-        c.fillRect(mx - 4, 80, 8, MOLD_Y - MOLD_H / 2 - 80 + 4);
+        c.fillRect(mx - 3, 22, 6, top + MOLD_H * (1 - Math.min(1, g.fill[mold])) - 18);
       }
-      c.fillStyle = "rgba(255,255,255,0.9)";
-      c.fillText("꾹 누르고 있으면 반죽이 나와요", 180, 345);
     }
-    if (step === "egg") {
-      drawEgg(c, mx + g.eggX, 70, 0, true);
-      c.fillText("계란이 가운데 올 때 탭!", 180, 345);
-    }
+    if (step === "egg") put(c, art["gyeranppang-egg-whole"], mx + g.eggX - 25, 24);
     if (step === "bake") {
-      c.fillText(g.bake < GOLDEN[0] ? "굽는 중…" : g.bake <= GOLDEN[1] ? "지금이에요! 노릇노릇" : "타고 있어요!!", 180, 345);
-      // heat shimmer
+      steam(c, 180, 100, t, 3);
       c.fillStyle = "rgba(255,140,40,0.15)";
-      c.fillRect(14, 300 + Math.sin(t * 8) * 2, 332, 8);
+      c.fillRect(14, 290 + Math.sin(t * 8) * 2, 332, 8);
     }
-  }
-
-  function drawEgg(c: CanvasRenderingContext2D, x: number, y: number, bake: number, whole = false) {
-    if (whole) {
-      c.fillStyle = "#f7efe2";
-      c.beginPath();
-      c.ellipse(x, y, 20, 26, 0, 0, Math.PI * 2);
-      c.fill();
-      return;
-    }
-    c.fillStyle = bake > 0.9 ? "#e8d8b8" : "#fbf7ef";
-    c.beginPath();
-    c.ellipse(x, y, 26, 22, 0, 0, Math.PI * 2);
-    c.fill();
-    c.fillStyle = bake > 0.6 ? "#f0a92a" : "#f7b733";
-    c.beginPath();
-    c.arc(x, y, 11, 0, Math.PI * 2);
-    c.fill();
   }
 
   function down() {
@@ -198,9 +193,20 @@ export default function Gyeranppang({ onDone }: GameProps) {
   }
 
   const g = s.current;
+  const stepIndex = step === "pour" ? 0 : step === "egg" ? 1 : 2;
+  const hint =
+    step === "pour"
+      ? `${mold + 1}번째 틀 · 꾹 누르고 있으면 반죽이 나와요. 점선 사이까지`
+      : step === "egg"
+        ? `${mold + 1}번째 틀 · 계란이 가운데 올 때 탭!`
+        : g.bake < GOLDEN[0]
+          ? "굽는 중… 노릇해지면 꺼내요"
+          : g.bake <= GOLDEN[1]
+            ? "지금이에요! 노릇노릇"
+            : "타고 있어요!!";
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-5">
       <canvas
         ref={ref}
         className="board"
@@ -222,23 +228,15 @@ export default function Gyeranppang({ onDone }: GameProps) {
           if (e.key === " " || e.key === "Enter") up();
         }}
       />
-      {step === "bake" ? (
-        <>
-          <div className="relative h-3 overflow-hidden rounded-full bg-black/40" aria-hidden="true">
-            <div className="absolute inset-y-0 left-0 rounded-full bg-tarp" style={{ width: `${clamp(g.bake / 1.25) * 100}%` }} />
-            <div
-              className="absolute inset-y-0 rounded-full border-2 border-bulb"
-              style={{ left: `${(GOLDEN[0] / 1.25) * 100}%`, width: `${((GOLDEN[1] - GOLDEN[0]) / 1.25) * 100}%` }}
-            />
-          </div>
-          <button type="button" className="btn" onClick={finish}>
+      {step === "bake" && <Gauge labels={["덜 익음", "노릇", "탐"]} pos={gaugePos(g.bake, 0, GOLDEN[0], GOLDEN[1], 1.25)} />}
+      <Hint>{hint}</Hint>
+      <Steps steps={["반죽", "계란", "굽기"]} current={stepIndex} />
+      {step === "bake" && (
+        <BottomBar>
+          <button type="button" className="btn flex-1" onClick={finish}>
             꺼내기
           </button>
-        </>
-      ) : (
-        <p className="m-0 text-sm text-ink-dim">
-          {mold + 1}번째 틀 · {step === "pour" ? "점선 사이까지 반죽 붓기" : "계란 떨어뜨리기"}
-        </p>
+        </BottomBar>
       )}
     </div>
   );
